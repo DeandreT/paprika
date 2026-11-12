@@ -1,0 +1,193 @@
+<section class="catalog-manager" aria-label="Workflow management">
+  <div class="section-heading">
+    <h2>{{ guided() ? 'Workflow setup' : 'Workflow management' }}</h2>
+    @if (guided()) {
+      <button mat-button (click)="backToCatalog()" [disabled]="busy() || !!pendingPreview()">Back to workflows</button>
+    } @else {
+      <button mat-stroked-button (click)="reload()" [disabled]="busy() || !!pendingPreview() || store.loading()">Reload catalog</button>
+    }
+  </div>
+  @if (!guided()) {
+  <nav class="catalog-tabs" aria-label="Catalog sections" data-testid="workflow-kind">
+    <button mat-button (click)="selectTab('type')" [attr.aria-pressed]="tab() === 'type'">Document type library</button>
+    <button mat-button (click)="selectTab('release')" [attr.aria-pressed]="tab() === 'release'">Releases</button>
+    <button mat-button (click)="selectTab('workflow')" [attr.aria-pressed]="tab() === 'workflow'">Workflows</button>
+  </nav>
+  }
+  @if (store.error()) { <p class="alert error" role="alert">{{ store.error() }}</p> }
+  @if (error()) { <p class="alert error" role="alert">{{ error() }}</p> }
+  @if (notice()) { <p class="alert success" role="status">{{ notice() }}</p> }
+  @if (busy() || store.loading()) { <p role="status" class="small">Updating workflow catalog…</p> }
+  <div class="catalog-layout" [class.guided-layout]="guided()">
+    @if (!guided()) {
+    <aside class="catalog-list" aria-label="Catalog versions">
+      <button mat-flat-button (click)="create()" [disabled]="busy() || !!pendingPreview()">{{ tab() === 'type' ? 'New document type' : tab() === 'release' ? 'New release' : 'New workflow' }}</button>
+      @for (entry of entries(); track entry.id + '@' + entry.version) {
+        <button class="packet-item" data-testid="catalog-entry-select" [class.active]="editor()?.id === entry.id && editor()?.version === entry.version" (click)="select(entry)" [disabled]="busy() || !!pendingPreview()" [attr.aria-label]="'Edit ' + entry.name + ' version ' + entry.version">
+          <span class="packet-name">{{ entry.name }}</span>
+          <span class="packet-meta">v{{ entry.version }} · r{{ entry.revision }} <span class="badge">{{ entry.status }}</span></span>
+          @if (entry.kind === 'workflow' && refKey(entry) === refKey(store.catalog().defaultWorkflow)) { <span class="badge approved">Default</span> }
+          <span class="packet-date">{{ entry.id }}</span>
+        </button>
+      } @empty { <p class="small muted">No versions in this section yet.</p> }
+    </aside>
+    }
+    <div class="catalog-editor">
+      @if (editor(); as entry) {
+        <div class="section-heading"><h3>{{ isNew() ? 'Create draft' : entry.name + ' · v' + entry.version }}</h3><span class="badge">{{ entry.status }}</span></div>
+        <p class="small muted">{{ dirty() ? 'Unsaved changes' : 'Saved revision ' + entry.revision }} @if (entry.status !== 'draft') { · Create a new version to edit. }</p>
+        @if (entry.workflow) {
+          <div class="editor-mode" role="group" aria-label="Editor mode">
+            <button mat-button data-testid="workflow-guided" [attr.aria-pressed]="!advanced()" (click)="setAdvanced(false)" [disabled]="busy() || !!pendingPreview()">Guided</button>
+            <button mat-button data-testid="workflow-advanced" [attr.aria-pressed]="advanced()" (click)="setAdvanced(true)" [disabled]="busy() || !!pendingPreview()">Advanced</button>
+          </div>
+          @if (guided()) {
+            <ol class="wizard-steps" aria-label="Workflow setup steps">
+              @for (label of steps; track $index; let index = $index) {
+                <li [attr.aria-current]="step() === index ? 'step' : null"><span>{{ index + 1 }}</span>{{ label }}</li>
+              }
+            </ol>
+            <h3 #stepHeading tabindex="-1" class="wizard-title" aria-live="polite" data-testid="workflow-step">Step {{ step() + 1 }} of {{ steps.length }} · {{ steps[step()] }}</h3>
+          }
+        }
+        @if (!guided() || !atFinish()) {
+        <fieldset [disabled]="locked()">
+          @if (!guided()) { <legend>Definition</legend> }
+          @if (!guided() || step() === 0) {
+          <div class="form-grid">
+            <label>Name<input data-testid="catalog-name" [(ngModel)]="entry.name" (ngModelChange)="markDirty()" required maxlength="120" /></label>
+            @if (!guided()) {
+            <label>Stable ID<input [(ngModel)]="entry.id" (ngModelChange)="markDirty()" [disabled]="!isNew()" maxlength="80" pattern="[a-z0-9][a-z0-9_-]*" placeholder="Generated when left blank" /></label>
+            }
+          </div>
+          <label>Description (optional)<textarea [(ngModel)]="entry.description" (ngModelChange)="markDirty()" maxlength="2000" rows="2"></textarea></label>
+          }
+          @if (entry.documentType; as type) {
+            <label>Classification keywords<textarea [(ngModel)]="keywords" (ngModelChange)="markDirty()" rows="4" placeholder="One keyword or phrase per line"></textarea></label>
+            <p class="small muted">One keyword or phrase per line. Simulation uses these keywords on locally extracted text; images and scanned PDFs require manual review.</p>
+            <label>Document type instructions<textarea [(ngModel)]="type.instructions" (ngModelChange)="markDirty()" rows="4"></textarea></label>
+            <p class="small muted">Classification guidance for the live provider. Simulation uses keywords and split rules rather than executing free-text instructions.</p>
+            <app-split-editor [policy]="type.split" [inherit]="true" [disabled]="locked()" (policyChange)="type.split = $event; markDirty()" />
+          }
+          @if (entry.release) {
+            <h3>Exact document type versions</h3>
+            <p class="small muted">Choose one exact version per type. Unknown is required. Draft versions can be sampled; publication requires published versions.</p>
+            <div class="form-grid">
+              @for (id of typeIds(); track id) {
+                <label>{{ id }} version<select [ngModel]="typeSelection(id)" (ngModelChange)="chooseType(id, $event)">
+                  <option value="">Not included</option>
+                  @for (type of typeVersions(id); track type.version) { <option [value]="refKey(type)">{{ type.name }} · v{{ type.version }} · {{ type.status }}</option> }
+                </select></label>
+              }
+            </div>
+          }
+          @if (entry.workflow; as workflow) {
+            @if (!guided() || step() === 1) {
+            <div class="form-grid">
+              <label>Document type release<select [ngModel]="refKey(workflow.release)" (ngModelChange)="chooseRelease($event)">
+                <option value="">Choose a release</option>
+                @for (release of releases(); track release.id + '@' + release.version) { <option [value]="refKey(release)">{{ release.name }} · v{{ release.version }} · {{ release.status }}</option> }
+              </select></label>
+              <label>Workflow mode<select [ngModel]="workflow.mode" (ngModelChange)="chooseMode($event)"><option value="simulation">Simulation</option><option value="live">Live</option></select></label>
+              @if (!guided()) {
+              <label>Provider profile<select [(ngModel)]="workflow.providerProfile" (ngModelChange)="markDirty()"><option value="default">Server default</option></select></label>
+              <label>Model<select [(ngModel)]="workflow.model" (ngModelChange)="markDirty()">
+                @if (workflow.mode === 'simulation') { <option value="local-simulation-1">local-simulation-1</option> }
+                @else { <option [value]="store.catalog().liveModel">{{ store.catalog().liveModel || 'Approved live model unavailable — reload catalog' }}</option> }
+                @if (workflow.model && workflow.model !== (workflow.mode === 'simulation' ? 'local-simulation-1' : store.catalog().liveModel)) { <option [value]="workflow.model">{{ workflow.model }} (previous configuration)</option> }
+              </select></label>
+              }
+            </div>
+            @if (guided()) {
+              <p class="small muted">{{ selectedTypes().length }} document types · {{ workflow.mode === 'simulation' ? 'Local rules, no OCR' : 'Live providers' }}</p>
+              <ul class="wizard-type-list">@for (type of selectedTypes(); track type.id) { <li>{{ type.name }}</li> }</ul>
+            }
+            }
+            @if (!guided()) {
+            <label>Workflow instructions<textarea [(ngModel)]="workflow.instructions" (ngModelChange)="markDirty()" rows="4"></textarea></label>
+            <p class="small muted">Instructions apply to live classification.</p>
+            }
+            @if (!guided() || step() === 2) {
+            <app-split-editor label="Default split policy" [policy]="workflow.defaultSplit" [disabled]="locked()" (policyChange)="workflow.defaultSplit = $event; markDirty()" />
+            <fieldset><legend>Identifier candidates</legend><div class="checkbox-grid">
+              @for (kind of identifiers; track kind) { <label class="checkbox-label"><input type="checkbox" [ngModel]="workflow.identifierKinds.includes(kind)" (ngModelChange)="toggleIdentifier(kind, false, $event)" />Extract {{ kind }}</label> }
+            </div></fieldset>
+            <fieldset><legend>Required identifiers</legend><div class="checkbox-grid">
+              @for (kind of identifiers; track kind) { <label class="checkbox-label"><input type="checkbox" [ngModel]="workflow.requiredIdentifierKinds.includes(kind)" (ngModelChange)="toggleIdentifier(kind, true, $event)" />Require {{ kind }}</label> }
+            </div><p class="small muted">Missing required identifiers are flagged for review.</p></fieldset>
+            }
+            @if (!guided()) {
+            <app-capability-editor [value]="workflow.capabilities" [disabled]="locked()" (valueChange)="workflow.capabilities = $event; markDirty()" />
+            }
+          }
+        </fieldset>
+        }
+        @if (guided() && atFinish() && entry.workflow; as workflow) {
+          <section class="wizard-summary" aria-label="Workflow summary">
+            <div><h4>Basics</h4><p>{{ entry.name || 'Unnamed workflow' }}</p>@if (entry.description) { <p class="small muted">{{ entry.description }}</p> }<button mat-button (click)="goToStep(0)" [disabled]="busy() || !!pendingPreview()">Edit basics</button></div>
+            <div><h4>Documents</h4><p>{{ selectedRelease()?.name || 'No release selected' }} · {{ workflow.mode }}</p><button mat-button (click)="goToStep(1)" [disabled]="busy() || !!pendingPreview()">Edit documents</button></div>
+            <div><h4>Review rules</h4><p>Split: {{ workflow.defaultSplit.mode }}</p><p class="small">Required identifiers: {{ workflow.requiredIdentifierKinds.join(', ') || 'None' }}</p><button mat-button (click)="goToStep(2)" [disabled]="busy() || !!pendingPreview()">Edit review rules</button></div>
+            <div><h4>Additional tools</h4><p>{{ configuredTools().join(', ') || 'None configured' }}</p><button mat-button (click)="setAdvanced(true)" [disabled]="busy() || !!pendingPreview()">Advanced settings</button></div>
+          </section>
+        }
+        @if (guided() && stepIssues().length) { <ul class="small muted" aria-label="Step requirements">@for (issue of stepIssues(); track issue) { <li>{{ issue }}</li> }</ul> }
+        @if (guided()) {
+          <div class="wizard-navigation">
+            <button mat-stroked-button data-testid="workflow-back" (click)="goToStep(step() - 1)" [disabled]="step() === 0 || busy() || !!pendingPreview()">Back</button>
+            @if (!atFinish()) { <button mat-flat-button data-testid="workflow-next" (click)="goToStep(step() + 1)" [disabled]="busy() || !!pendingPreview() || stepIssues().length > 0">Next</button> }
+          </div>
+        }
+        <div class="catalog-actions">
+          @if (entry.status === 'draft') {
+            <button mat-flat-button data-testid="catalog-save" (click)="save()" [disabled]="locked() || !dirty()">Save draft definition</button>
+            @if (atFinish()) {
+            <button mat-stroked-button data-testid="catalog-publish" (click)="action('publish')" [disabled]="busy() || dirty() || isNew() || !!pendingPreview() || publicationIssues().length > 0">Publish version</button>
+            }
+          }
+          @if (!isNew() && atFinish()) {
+            <button mat-stroked-button data-testid="catalog-new-version" (click)="action('versions')" [disabled]="busy() || dirty() || !!pendingPreview()">New version</button>
+            @if (entry.status !== 'archived') { <button mat-stroked-button data-testid="catalog-archive" (click)="action('archive')" [disabled]="busy() || dirty() || !!pendingPreview() || (entry.kind === 'workflow' && refKey(entry) === refKey(store.catalog().defaultWorkflow))">Archive version</button> }
+            @if (entry.kind === 'workflow' && entry.status === 'published') { <button mat-stroked-button (click)="makeDefault()" [disabled]="busy() || refKey(entry) === refKey(store.catalog().defaultWorkflow)">Set as default workflow</button> }
+          }
+        </div>
+        @if (atFinish() && entry.status === 'draft' && publicationIssues().length) { <ul class="small muted" aria-label="Publication readiness">@for (issue of publicationIssues(); track issue) { <li>{{ issue }}</li> }</ul> }
+        @if (!isNew() && atFinish()) { <details class="clone-options"><summary>Clone workflow or definition</summary><div class="clone-actions"><label>Clone name<input [(ngModel)]="cloneName" [disabled]="busy() || !!pendingPreview()" /></label><button mat-stroked-button data-testid="catalog-clone" (click)="action('clone')" [disabled]="busy() || dirty() || !!pendingPreview()">Clone definition</button></div></details> }
+        @if (entry.workflow; as workflow) {
+          @if (!guided()) {
+          <section class="stage-panel" aria-label="Workflow stage preview">
+            <h3>Processing stages</h3>
+            <ol class="stage-list">
+              <li><strong>Intake</strong><span>PDF, PNG, JPG · {{ config()?.maxUploadMb ?? 25 }} MB · exact workflow snapshot</span></li>
+              <li><strong>Text extraction</strong><span>{{ workflow.mode === 'simulation' ? 'Local PDF text. Scanned pages and images go to review.' : config()?.ocrConfigured ? 'OCR provider configured.' : 'OCR provider needs configuration.' }}</span></li>
+              <li><strong>Classification</strong><span>{{ selectedRelease()?.name || 'Choose a release' }} · {{ selectedTypes().length }} pinned types · {{ workflow.mode === 'simulation' ? 'Keyword rules' : config()?.classifierConfigured ? 'Live provider configured' : 'Classifier provider needs configuration' }}</span></li>
+              <li><strong>Document splitting</strong><span>Default: {{ workflow.defaultSplit.mode }}. Type overrides apply within source files.</span></li>
+              <li><strong>Identifier extraction</strong><span>{{ workflow.identifierKinds.join(', ') || 'No candidate kinds selected' }} · Required: {{ workflow.requiredIdentifierKinds.join(', ') || 'None' }}</span></li>
+              <li><strong>Quality routing and approval</strong><span>Default manual review. Configured policies apply evidence, model evaluation and independent QA sampling.</span></li>
+              <li><strong>Export and delivery</strong><span>Approved PDFs and ZIP. Sample previews carry test provenance and cannot be delivered.</span></li>
+            </ol>
+            <details><summary>Resolved document types and split policies</summary><ul class="small">@for (type of selectedTypes(); track type.id) { <li>{{ type.name }} v{{ type.version }} · {{ type.documentType?.split?.mode === 'inherit' ? workflow.defaultSplit.mode + ' (inherited)' : type.documentType?.split?.mode }}</li> } @empty { <li>Select a release with document types.</li> }</ul></details>
+          </section>
+          <section class="stage-panel" aria-label="Workflow statistics">
+            <h3>Version statistics</h3>
+            <p class="small muted">Saved operational runs for this exact workflow version. Sample previews are excluded.</p>
+            <dl class="workflow-stats"><div><dt>Packets</dt><dd>{{ stats()?.packets ?? 0 }}</dd></div><div><dt>Review</dt><dd>{{ stats()?.review ?? 0 }}</dd></div><div><dt>Failed</dt><dd>{{ stats()?.failed ?? 0 }}</dd></div><div><dt>Approved</dt><dd>{{ stats()?.approved ?? 0 }}</dd></div><div><dt>Corrections</dt><dd>{{ stats()?.corrections ?? 0 }}</dd></div></dl>
+          </section>
+          }
+          @if (atFinish() && entry.status === 'draft') {
+            <section class="stage-panel" aria-label="Draft sample preview">
+              <h3>Sample preview</h3>
+              <p class="small muted">Test the saved draft with a sample file.</p>
+              @if (dirty() || isNew()) { <p role="status" class="small">Save draft definition before previewing.</p> }
+              @if (workflow.mode !== 'simulation') { <p class="small">Sample preview requires Simulation mode. Save that mode before previewing.</p> }
+              @if (reviewDirty()) { <p class="small">Save your packet review changes before previewing.</p> }
+              <label>Sample files<input data-testid="workflow-preview-files" type="file" accept=".pdf,.png,.jpg,.jpeg" multiple (change)="chooseFiles($event)" [disabled]="busy() || dirty() || isNew() || !!pendingPreview() || workflow.mode !== 'simulation'" /></label>
+              @if (files().length) { <ul class="small">@for (file of files(); track $index) { <li>{{ file.name }}</li> }</ul> }
+              <button mat-flat-button (click)="preview()" [disabled]="busy() || dirty() || isNew() || reviewBusy() || reviewDirty() || workflow.mode !== 'simulation' || (!files().length && !pendingPreview())">{{ pendingPreview() ? 'Retry sample preview' : 'Run sample preview' }}</button>
+              @if (pendingPreview()) { <p role="status" class="small">Confirmation pending. Retry keeps the original files, saved revision, and submission key.</p> }
+            </section>
+          }
+        }
+      } @else { <div class="queue-empty">Select a version to inspect it, or create a draft.</div> }
+    </div>
+  </div>
+</section>
