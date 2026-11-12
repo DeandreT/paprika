@@ -1,0 +1,11 @@
+{
+  "name": "paperwork-classifier-smoke-tests",
+  "private": true,
+  "scripts": {
+    "test": "playwright test"
+  },
+  "devDependencies": {
+    "@apidevtools/swagger-parser": "13.1.0",
+    "@playwright/test": "1.65.0"
+  }
+}
