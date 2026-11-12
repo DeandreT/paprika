@@ -1,0 +1,26 @@
+# Build output and dependencies
+**/bin/
+**/obj/
+client/node_modules/
+client/dist/
+client/.angular/
+tests/node_modules/
+tests/test-results/
+tests/playwright-report/
+# Local data, credentials, and editor state
+.vs/
+.idea/
+.env
+.env.*
+!.env.example
+**/appsettings.Local.json
+**/appsettings.Development.local.json
+data/
+artifacts/
+*.db
+*.db-shm
+*.db-wal
+*.user
+*.log
+__pycache__/
+.openchamber/
