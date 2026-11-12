@@ -1,0 +1,644 @@
+<div class="app-context">
+  <h1>{{ managerOpen() ? 'Workflows' : classificationAdvanced() ? 'Documents' : packet()?.name || 'Classify paperwork' }}</h1>
+  <button mat-button data-testid="app-menu-toggle" [matMenuTriggerFor]="applicationMenu" aria-label="Open application menu">☰ <span>Menu</span></button>
+</div>
+<mat-menu #applicationMenu="matMenu" class="application-menu" xPosition="before">
+  <div class="menu-brand">PaperworkClassifier</div>
+  <button mat-menu-item data-testid="classification-guided" (click)="showClassification(false)" [disabled]="busy()" [attr.aria-current]="!managerOpen() && !classificationAdvanced() ? 'page' : null">Guided review</button>
+  <button mat-menu-item data-testid="classification-advanced" (click)="showClassification(true)" [disabled]="busy()" [attr.aria-current]="!managerOpen() && classificationAdvanced() ? 'page' : null">Advanced workspace</button>
+  <button mat-menu-item data-testid="workflow-manager-toggle" (click)="managerOpen.set(!managerOpen())" [disabled]="busy()" [attr.aria-expanded]="managerOpen()" aria-controls="workflow-manager">{{ managerOpen() ? 'Close workflow management' : 'Manage workflows' }}</button>
+  <button mat-menu-item data-testid="platform-toggle" (click)="togglePlatform()" [disabled]="busy()" [attr.aria-expanded]="platformOpen() && !managerOpen() && classificationAdvanced()" aria-controls="platform-tools">{{ platformOpen() && !managerOpen() && classificationAdvanced() ? 'Close platform tools' : 'Platform tools / sign in' }}</button>
+  <button mat-menu-item data-testid="theme-toggle" (click)="theme.toggle()" [attr.aria-label]="theme.dark() ? 'Switch to light mode' : 'Switch to dark mode'">{{ theme.dark() ? 'Light mode' : 'Dark mode' }}</button>
+</mat-menu>
+<input #filePicker data-testid="upload-input" type="file" accept=".pdf,.png,.jpg,.jpeg" multiple hidden (change)="upload($event)" />
+@if (uploadUncertain() && pendingUpload(); as submission) {
+<div class="alert upload-recovery" role="status">
+  Upload confirmation is pending for {{ submission.files.length }} file(s).
+  Retry uses the same files, original workflow selection ({{ submission.workflowLabel }}), and submission key. The intake selector applies to your next upload.
+  <button
+    mat-stroked-button
+    data-testid="upload-retry"
+    (click)="retryUpload()"
+    [disabled]="busy()"
+  >
+    Retry upload
+  </button>
+</div>
+}
+@if (workflows.error()) { <div class="alert error" role="alert">{{ workflows.error() }} <button mat-button (click)="workflows.load()" [disabled]="workflows.loading()">Retry workflow loading</button></div> }
+<app-workflow-manager id="workflow-manager" [hidden]="!managerOpen()" [config]="config()" [reviewBusy]="busy()" [reviewDirty]="dirty()" (dirtyChanged)="catalogDirty.set($event)" (packetCreated)="previewCreated($event)" />
+@if (platformOpen() && !managerOpen() && classificationAdvanced()) {
+<section id="platform-tools" class="catalog-manager" aria-label="Document processing platform" data-testid="platform-tools">
+  <nav class="catalog-tabs" aria-label="Platform tools">
+    @for (tab of platformTabs; track tab.id) {
+      <button mat-button [attr.aria-pressed]="platformTab() === tab.id" (click)="platformTab.set(tab.id)">{{ tab.name }}</button>
+    }
+  </nav>
+  @if (dirty() || busy()) {
+    <p role="status">Save your packet edits and wait for the current operation before using platform actions.</p>
+  } @else {
+    @switch (platformTab()) {
+      @case ('team') { <app-operations-panel [packetId]="packet()?.id ?? ''" [revision]="packet()?.revision ?? 0" (refreshed)="platformRefreshed()" /> }
+      @case ('quality') { <app-quality-panel [packetId]="packet()?.id ?? ''" [revision]="packet()?.revision ?? 0" (refreshed)="platformRefreshed()" /> }
+      @case ('references') { <app-reference-panel [packetId]="packet()?.id ?? ''" [revision]="packet()?.revision ?? 0" (refreshed)="platformRefreshed()" /> }
+      @case ('extraction') { <app-extraction-panel [packetId]="packet()?.id ?? ''" [revision]="packet()?.revision ?? 0" (refreshed)="platformRefreshed()" /> }
+      @case ('cases') { <app-case-panel [packetId]="packet()?.id ?? ''" [revision]="packet()?.revision ?? 0" (refreshed)="platformRefreshed()" /> }
+      @case ('flows') { <app-flow-panel [packetId]="packet()?.id ?? ''" [revision]="packet()?.revision ?? 0" (refreshed)="platformRefreshed()" /> }
+    }
+  }
+</section>
+}
+@if (error()) {
+<div class="alert error" role="alert" data-testid="error-message">
+  {{ error() }} @if (!config()) {
+  <button mat-button (click)="initialize()" [disabled]="loading()">
+    Reconnect
+  </button>
+  } @if (stale()) {
+  <button mat-button (click)="open(packet()!.id)" [disabled]="busy()">
+    Refresh packet
+  </button>
+  }
+</div>
+} @if (notice()) {
+<div class="alert success" role="status">{{ notice() }}</div>
+} @if (loading() || busy()) {
+<mat-progress-bar mode="indeterminate" aria-label="Loading packet data" />
+}
+@if (!managerOpen() && !classificationAdvanced()) { <app-classification-wizard [workspace]="this" /> }
+@if (classificationAdvanced()) {
+<main class="workspace" [hidden]="managerOpen()">
+  <aside class="inbox">
+    <div class="inbox-intake">
+      <label>Intake workflow<select data-testid="workflow-select" [ngModel]="workflowSelection()" (ngModelChange)="workflowSelection.set($event)" [disabled]="busy() || workflows.loading() || !!pendingUpload()">
+        <option value="">Default: {{ workflows.defaultEntry()?.name || 'Unavailable' }}{{ workflows.defaultEntry() ? ' v' + workflows.defaultEntry()!.version : '' }}</option>
+        @for (workflow of workflows.published(); track refKey(workflow)) { <option [value]="refKey(workflow)">{{ workflow.name }} · v{{ workflow.version }} · {{ workflow.workflow?.mode }}</option> }
+      </select></label>
+      <button mat-flat-button (click)="chooseUpload()" [disabled]="!uploadReady() || busy() || !!pendingUpload()">Upload packet</button>
+      <button mat-button data-testid="demo-button" (click)="demo()" [disabled]="busy() || loading() || !!pendingUpload()">Try demo packet</button>
+    </div>
+    <div class="section-heading">
+      <h2>Packet inbox</h2>
+      <span class="count">{{ packets().length }}</span>
+    </div>
+    <div class="inbox-filters">
+      <label
+        >Search packets<input
+          type="search"
+          data-testid="inbox-search"
+          placeholder="Name or business reference"
+          [ngModel]="inboxSearch()"
+          (ngModelChange)="inboxSearch.set($event)"
+      /></label>
+      <label
+        >Status<select
+          data-testid="status-filter"
+          [ngModel]="statusFilter()"
+          (ngModelChange)="statusFilter.set($event)"
+        >
+          <option value="all">All statuses</option>
+          @for (status of statuses; track status) {
+          <option [value]="status">{{ status }}</option>
+          }
+        </select></label
+      >
+      <label
+        >Mode<select
+          data-testid="mode-filter"
+          [ngModel]="modeFilter()"
+          (ngModelChange)="modeFilter.set($event)"
+        >
+          <option value="all">All modes</option>
+          @for (mode of modes; track mode) {
+          <option [value]="mode">{{ mode }}</option>
+          }
+        </select></label
+      >
+      <label>Workflow filter<select data-testid="workflow-filter" [ngModel]="workflowFilter()" (ngModelChange)="workflowFilter.set($event)">
+        <option value="all">All workflows</option>
+        @for (workflow of inboxWorkflows(); track refKey(workflow)) { <option [value]="refKey(workflow)">{{ workflow.name }} · v{{ workflow.version }}</option> }
+      </select></label>
+      @if (inboxSearch() || statusFilter() !== 'all' || modeFilter() !== 'all' || workflowFilter() !== 'all')
+      {
+      <button mat-button (click)="clearFilters()">Clear filters</button>
+      }
+    </div>
+    <nav aria-label="Packets">
+      @for (p of visiblePackets(); track p.id) {
+      <button
+        class="packet-item"
+        [class.active]="packet()?.id === p.id"
+        (click)="open(p.id)"
+        [disabled]="busy()"
+        [attr.aria-current]="packet()?.id === p.id ? 'true' : null"
+      >
+        <span class="packet-name">{{ p.name }}</span
+        ><span class="packet-meta"
+          ><span class="badge" [class.approved]="p.status === 'approved'"
+            >{{ p.status }}</span
+          ><span>{{ p.pages.length }} pages</span></span
+        ><span class="packet-date"
+          >{{ p.createdAt | date: "MMM d, h:mm a" }} @if (p.mode === "demo") { ·
+          DEMO } @else if (p.mode === "simulation") { · SIMULATION } @else { ·
+          LIVE }
+        </span>
+        @if (p.workflow) { <span class="packet-date">{{ p.workflow.name }} · v{{ p.workflow.version }}</span> }
+        @if (p.testRun) { <span class="badge test-badge">Test preview</span> }
+      </button>
+      } @empty {
+      <div class="queue-empty">
+        @if (packets().length) { No matching packets. } @else { No packets yet. }
+      </div>
+      }
+    </nav>
+    <p class="small muted" aria-live="polite">
+      {{ visiblePackets().length }} of {{ packets().length }} packets
+    </p>
+    <div class="setup">
+      @if (selectedWorkflow()?.workflow?.mode === 'simulation') {
+      <p class="small">Simulation · Local rules, no OCR</p>
+      } @else {
+      <p>
+        <span class="dot" [class.ready]="config()?.ocrConfigured"></span>OCR {{
+        config()?.ocrConfigured ? "configured" : "not configured" }}
+      </p>
+      <p>
+        <span class="dot" [class.ready]="config()?.classifierConfigured"></span
+        >Jev {{ config()?.classifierConfigured ? "configured" : "not configured"
+        }}
+      </p>
+      @if (!uploadReady()) {
+      <p class="small muted">
+        Configure OCR and Jev to enable live uploads.
+      </p>
+      } }
+      <span class="small muted"
+        >PDF, PNG, JPG · {{ config()?.maxUploadMb ?? 25 }} MB per upload</span
+      >
+    </div>
+  </aside>
+  <section class="review-area" aria-label="Document review">
+    @if (packet(); as p) {
+    <div class="packet-heading">
+      <div>
+        <h2 data-testid="packet-name">{{ p.name }}</h2>
+        <p class="small muted">
+          {{ p.pages.length }} source pages · {{ documents().length }} documents
+          · Revision {{ p.revision }} · Run {{ p.runNumber }}
+        </p>
+      </div>
+      <span class="badge" [class.approved]="p.status === 'approved'"
+        >{{ p.status }}</span
+      >
+    </div>
+    @if (p.workflow; as workflow) {
+      <details class="workflow-context" data-testid="packet-workflow">
+        <summary>{{ workflow.name }} · v{{ workflow.version }} @if (p.testRun) { <span class="badge test-badge" data-testid="test-run-badge">Test preview</span> }</summary>
+        <p class="small">Workflow {{ workflow.id }} · Release {{ workflow.releaseId }} v{{ workflow.releaseVersion }} · {{ workflow.mode }} · Provider {{ workflow.providerProfile }} · Model {{ workflow.model || 'Server default' }}</p>
+        <p class="small snapshot-hash">Snapshot: {{ workflow.hash }}</p>
+        <p class="small">Required identifiers: {{ workflow.requiredIdentifierKinds.join(', ') || 'None' }} · Manual approval required</p>
+        <ul class="small">@for (type of workflow.types; track type.id) { <li>{{ type.name }} v{{ type.version }} · {{ type.split.mode }} split policy</li> }</ul>
+      </details>
+    }
+    @if (p.testRun) { <div class="demo-banner">TEST PREVIEW · Saved draft simulation · Export includes test provenance · Delivery unavailable</div> }
+    <div class="lifecycle-actions">
+      @if (p.parentPacketId) {
+      <button mat-button (click)="open(p.parentPacketId)" [disabled]="busy()">
+        Open parent packet
+      </button>
+      } @if (p.status === 'queued' || p.status === 'processing') {
+      <button
+        mat-stroked-button
+        data-testid="cancel-packet"
+        (click)="lifecycle('cancel')"
+        [disabled]="busy() || stale()"
+      >
+        Cancel processing
+      </button>
+      } @else {
+      <label>Reprocess workflow<select data-testid="reprocess-workflow" [ngModel]="reprocessSelection()" (ngModelChange)="reprocessSelection.set($event)" [disabled]="busy() || stale()">
+        <option value="">Keep parent workflow snapshot</option>
+        @for (workflow of workflows.published(); track refKey(workflow)) { <option [value]="refKey(workflow)">{{ workflow.name }} · v{{ workflow.version }}</option> }
+      </select></label>
+      <button
+        mat-stroked-button
+        data-testid="reprocess-packet"
+        (click)="lifecycle('reprocess')"
+        [disabled]="busy() || stale()"
+      >
+        Reprocess as new run
+      </button>
+      }
+    </div>
+    @if (p.mode === "demo") {
+    <div class="demo-banner">
+      <strong>DEMO</strong><span>Synthetic sample · no model calls</span>
+    </div>
+    } @else if (p.mode === "simulation") {
+    <div class="demo-banner">
+      Simulation · Local rules, no OCR
+    </div>
+    }
+    <button
+      mat-stroked-button
+      data-testid="history-toggle"
+      (click)="toggleHistory()"
+      [attr.aria-expanded]="historyOpen()"
+      aria-controls="packet-history"
+    >
+      {{ historyOpen() ? 'Hide' : 'View' }} revision history
+    </button>
+    @if (historyOpen()) {
+    <section
+      id="packet-history"
+      class="history-panel"
+      aria-label="Packet revision history"
+    >
+      <h3>Revision history</h3>
+      @if (p.workflow) { <p class="small">{{ p.workflow.name }} v{{ p.workflow.version }} · Snapshot {{ p.workflow.hash }}{{ p.testRun ? ' · Test preview' : '' }}</p> }
+      <p class="small muted">
+        Saved revisions only. Your unsaved review changes stay in the workspace.
+      </p>
+      @if (historyLoading()) {
+      <p role="status" class="small">Loading revision history…</p>
+      } @else if (historyError()) {
+      <p role="alert">{{ historyError() }}</p>
+      <button mat-button (click)="loadHistory()">Retry history</button>
+      } @else { @for (revision of history(); track revision.revision) {
+      <details class="history-revision" data-testid="history-revision">
+        <summary>
+          Revision {{ revision.revision }} · {{ revision.status }} · {{
+          revision.action }} · {{ revision.at | date: 'medium' }}
+        </summary>
+        <ul>
+          @for (doc of revision.documents; track doc.id; let i = $index) {
+          <li>
+            Document {{ i + 1 }} · {{ label(doc.type) }} · {{ doc.pageIds.length
+            }} {{ doc.pageIds.length === 1 ? 'page' : 'pages' }} · Business
+            reference: {{ doc.businessReference || 'None' }}
+          </li>
+          } @empty {
+          <li>No document groups saved in this revision.</li>
+          }
+        </ul>
+      </details>
+      } @empty {
+      <p class="small muted">No saved revision history yet.</p>
+      } } @if (p.audit?.length) {
+      <h3>Audit activity</h3>
+      <ul aria-label="Packet audit activity">
+        @for (entry of p.audit; track $index) {
+        <li>
+          Revision {{ entry.revision }} · {{ entry.action }} · {{ entry.at |
+          date: 'medium' }}
+        </li>
+        }
+      </ul>
+      }
+    </section>
+    } @if (p.status === "queued" || p.status === "processing") {
+    <div class="processing">
+      <mat-progress-bar mode="indeterminate" aria-label="Processing packet" />
+      <h3>Preparing your review</h3>
+      <p>{{ p.processing?.stage || "Waiting to process your packet…" }}</p>
+      <p class="small muted">
+        {{ p.mode === 'simulation' ? 'Local text extraction and rule results
+        will appear here automatically. Images and scanned PDFs need manual
+        review.' : 'OCR and classification results will appear here
+        automatically.' }}
+      </p>
+    </div>
+    } @else if (p.status === "failed") {
+    <div class="alert error" data-testid="error-message" role="alert">
+      <h3>Processing could not finish</h3>
+      <p>{{ p.error || "Check backend services and retry this packet." }}</p>
+      <button mat-stroked-button (click)="retry()" [disabled]="busy()">
+        Retry processing
+      </button>
+    </div>
+    } @else if (p.status === "cancelled") {
+    <div class="processing">
+      <h3>Processing cancelled</h3>
+      <p>
+        The original sources are preserved. Reprocess as a new run to start
+        again.
+      </p>
+    </div>
+    } @else {
+    <div class="review-instruction">
+      <span>DOCUMENT GROUPS</span
+      ><span>Drag pages to reorder or move between documents</span>
+    </div>
+    <div cdkDropListGroup>
+    @for (doc of documents(); track doc.id; let index = $index) {
+    <article
+      data-testid="document-card"
+      class="document-card"
+      [class.selected-document]="selectedDoc()?.id === doc.id"
+    >
+      <div class="document-heading">
+        <span class="document-number"
+          >{{ index + 1 < 10 ? "0" : "" }}{{ index + 1 }}</span
+        >
+        <div class="document-fields">
+          <label
+            >Document type<select
+              data-testid="document-type"
+              [ngModel]="doc.type"
+              (ngModelChange)="change(doc.id, 'type', $event)"
+              [disabled]="!editable()"
+            >
+              @for (type of reviewTypes(); track type.id) {
+              <option [value]="type.id">{{ type.label }}</option>
+              }
+            </select></label
+          ><label
+            >{{ referenceLabel() }}<input
+              [ngModel]="doc.businessReference"
+              (ngModelChange)="
+                      change(doc.id, 'businessReference', $event)
+                    "
+              placeholder="Add a reference"
+              [disabled]="!editable()"
+          /></label>
+        </div>
+        <span class="small muted"
+          >{{ doc.pageIds.length }} {{ doc.pageIds.length === 1 ? "page" :
+          "pages" }}</span
+        >
+      </div>
+      <div class="document-download">
+        @if (p.status === 'approved' && !dirty()) {
+        <a
+          mat-button
+          data-testid="document-download"
+          [href]="documentDownloadUrl(doc.id)"
+          [attr.aria-label]="'Download PDF for document ' + (index + 1) + ', ' + label(doc.type)"
+          >↓ Download PDF</a
+        >
+        } @else {
+        <button
+          mat-button
+          disabled
+          data-testid="document-download"
+          [attr.aria-label]="'Download PDF for document ' + (index + 1) + ', ' + label(doc.type)"
+          title="Save and approve this packet to download"
+        >
+          ↓ Download PDF
+        </button>
+        }
+      </div>
+      @if (doc.reviewReasons.length) {
+      <p class="document-reason">Review: {{ doc.reviewReasons.join(" · ") }}</p>
+      }
+      <div class="thumbnails" cdkDropList cdkDropListOrientation="mixed"
+        [cdkDropListData]="doc.id" [cdkDropListDisabled]="!editable()"
+        (cdkDropListDropped)="dropPage($event)" data-testid="document-pages"
+        [attr.aria-label]="'Pages in document ' + (index + 1)">
+        @for (id of doc.pageIds; track id; let position = $index) { @if
+        (page(id); as pg) {
+        <button
+          class="thumbnail"
+          data-testid="page-item"
+          cdkDrag [cdkDragData]="{ pageId: id, packetId: p.id }" [cdkDragDisabled]="!editable()"
+          [cdkDragStartDelay]="{ mouse: 0, touch: 200 }"
+          [attr.data-page-id]="id" title="Drag to move page"
+          [class.selected]="selectedId() === id"
+          (click)="selectedId.set(id)"
+          [attr.aria-pressed]="selectedId() === id"
+          [attr.aria-label]="
+                      'Inspect ' +
+                      pg.sourceName +
+                      ', source page ' +
+                      pg.pageNumber
+                    "
+        >
+          <div class="thumb-image">
+            <app-page-preview
+              [url]="pg.previewUrl"
+              [name]="pg.sourceName"
+              [pageNumber]="pg.pageNumber"
+              [thumbnail]="true"
+            />
+          </div>
+          <span class="thumb-caption"
+            ><strong>{{ position + 1 }}</strong
+            ><span>Source p. {{ pg.pageNumber }}</span>
+            @if (pg.reviewReasons.length) {
+            <span class="review-dot" title="Needs review">!</span>
+            }</span
+          ><span class="thumb-source" [title]="pg.sourceName"
+            >{{ pg.sourceName }}</span
+          >
+        </button>
+        } }
+      </div>
+    </article>
+    }
+    <div class="new-document-drop" cdkDropList [cdkDropListData]="'new'"
+      [cdkDropListDisabled]="!editable()" (cdkDropListDropped)="dropPage($event)"
+      data-testid="new-document-drop" aria-label="New document drop area">
+      Drop a page here to create a new document
+    </div>
+    </div>
+    <section class="business-groups" aria-label="Business reference groups">
+      <h3>Business reference groups</h3>
+      @if (dirty()) { <p class="small muted">Includes unsaved changes.</p> }
+      @for (group of derivedBusinessGroups(); track group.reference) {
+      <details>
+        <summary>
+          {{ group.reference || 'Unassigned' }} · {{ group.documents.length }}
+          {{ group.documents.length === 1 ? 'document' : 'documents' }}
+        </summary>
+        <ul>
+          @for (doc of group.documents; track doc.id) {
+          <li>{{ label(doc.type) }} · {{ doc.pageIds.length }} page(s)</li>
+          }
+        </ul>
+      </details>
+      }
+    </section>
+    <div class="review-footer">
+      <div>
+        <strong
+          >{{ dirty() ? "● Unsaved changes" : p.status === "approved" ? "✓
+          Approved packet" : "All changes saved" }}</strong
+        >
+      </div>
+      <div class="footer-actions">
+        <button
+          mat-stroked-button
+          (click)="save(false)"
+          data-testid="save-review"
+          [disabled]="!editable() || !dirty()"
+        >
+          Save draft</button
+        ><button
+          mat-flat-button
+          (click)="save(true)"
+          data-testid="approve-review"
+          [disabled]="
+                !editable() ||
+                !documents().length ||
+                (p.status === 'approved' && !dirty())
+              "
+        >
+          Approve packet
+        </button>
+        @if (p.status === "approved" && !dirty()) {
+        <a mat-stroked-button [href]="exportUrl()" data-testid="export-packet"
+          >↓ Export ZIP</a
+        >
+        } @else {
+        <button
+          mat-stroked-button
+          disabled
+          title="Save and approve this packet to export"
+          data-testid="export-packet"
+        >
+          ↓ Export ZIP
+        </button>
+        }
+      </div>
+    </div>
+    }
+    <app-delivery [packet]="p" [dirty]="dirty()" [busy]="busy() || stale()" />
+    } @else {
+    <div class="empty-state">
+      <div class="paper-illustration" aria-hidden="true">
+        <div class="sheet back"></div>
+        <div class="sheet front">
+          <span class="illustration-tag">PC</span><i></i><i></i><i></i><b>✓</b>
+        </div>
+      </div>
+      <h2>Select a packet to review</h2>
+      <p>Or upload a PDF, PNG, or JPG.</p>
+      <button
+        mat-flat-button
+        (click)="filePicker.click()"
+        [disabled]="!uploadReady() || busy() || !!pendingUpload()"
+      >
+        Upload packet
+      </button>
+    </div>
+    }
+  </section>
+  <aside class="inspection" aria-label="Page inspection">
+    @if (selected(); as pg) {
+    <div class="section-heading">
+      <h2>Page inspection</h2>
+      <span class="badge">Source p. {{ pg.pageNumber }}</span>
+    </div>
+    <p class="source-name">{{ pg.sourceName }}</p>
+    <div class="large-preview">
+      <app-page-preview
+        [url]="pg.previewUrl"
+        [name]="pg.sourceName"
+        [pageNumber]="pg.pageNumber"
+      />
+    </div>
+    <a class="source-link" [href]="pg.previewUrl" target="_blank" rel="noopener"
+      >Open original source ↗</a
+    >
+    <div class="inspection-section">
+      <p class="eyebrow">CLASSIFICATION</p>
+      <dl>
+        <div>
+          <dt>Predicted type</dt>
+          <dd>{{ label(pg.predictedType) }}</dd>
+        </div>
+      </dl>
+      <details data-testid="classification-details">
+        <summary>Classification details</summary>
+      <dl>
+        <div>
+          <dt>
+            {{ packet()?.mode === 'simulation' ? 'Rule match score' : 'Model
+            confidence' }}
+          </dt>
+          <dd>{{ pg.confidence | percent: "1.0-1" }}</dd>
+        </div>
+        <div>
+          <dt>
+            {{ packet()?.mode === 'simulation' ? 'Rule-based start score' :
+            'Document start probability' }}
+          </dt>
+          <dd>{{ pg.startProbability | percent: "1.0-1" }}</dd>
+        </div>
+      </dl>
+      @if (packet()?.mode === "demo") {
+      <p class="small muted">Synthetic sample scores.</p>
+      } @else if (packet()?.mode === 'simulation') {
+      <p class="small muted">
+        Rule scores, not model confidence.
+      </p>
+      } @for (reason of pg.reviewReasons; track $index) {
+      <p class="reason">{{ reason }}</p>
+      }
+      </details>
+    </div>
+    <div class="inspection-section">
+      <p class="eyebrow">REFERENCE CANDIDATES</p>
+      @for (candidate of identifierCandidates(); track $index) {
+      <div class="reference-candidate">
+        <strong>{{ candidate.kind }} · {{ candidate.value }}</strong>
+        <details>
+          <summary>Evidence and source pages</summary>
+          <p class="small muted">Suggested reference · Not verified</p>
+          <p>{{ candidate.evidence }}</p>
+          <ul>
+            @for (id of candidate.pageIds; track id) { @if (page(id); as source)
+            {
+            <li>{{ source.sourceName }} · source p. {{ source.pageNumber }}</li>
+            } }
+          </ul>
+        </details>
+        <button
+          mat-button
+          data-testid="use-reference"
+          (click)="useReference(candidate.value)"
+          [disabled]="!editable()"
+        >
+          Use reference
+        </button>
+      </div>
+      } @empty {
+      <p class="small muted">No references found.</p>
+      }
+    </div>
+    <div class="inspection-section">
+      <label class="move-label"
+        >Move page to document<select
+          #moveSelect
+          [disabled]="!editable()"
+          (change)="move(moveSelect.value); moveSelect.value = ''"
+        >
+          <option value="">Select destination…</option>
+          @if ((selectedDoc()?.pageIds?.length ?? 0) > 1) { <option value="new">New document</option> }
+          @for (doc of documents(); track doc.id; let i = $index) { @if (doc.id
+          !== selectedDoc()?.id) {
+          <option [value]="doc.id">
+            {{ i + 1 }} · {{ label(doc.type) }}{{ doc.businessReference ? " · "
+            + doc.businessReference : "" }}
+          </option>
+          } }
+        </select></label
+      >
+    </div>
+    <details class="ocr">
+      <summary>
+        {{ packet()?.mode === 'simulation' ? 'Extracted text' : 'Extracted OCR
+        text' }}
+      </summary>
+      <pre>{{ pg.text || "No text was extracted for this page." }}</pre>
+    </details>
+    } @else {
+    <div class="inspection-empty">
+      <span class="empty-icon">⌕</span>
+      <p>Select a page to inspect.</p>
+    </div>
+    }
+  </aside>
+</main>
+@if (!managerOpen()) { <app-operations /> }
+}
