@@ -1,0 +1,136 @@
+@let w = workspace();
+<main class="classification-wizard" [class.document-focus]="reviewing() && !choosingPacket()" aria-label="Guided classification">
+  <div class="guided-progress">
+  <ol class="wizard-steps" aria-label="Classification steps">
+    @for (label of labels; track $index; let index = $index) {
+      <li [attr.aria-current]="step() === index ? 'step' : null"><span>{{ index + 1 }}</span>{{ label }}</li>
+    }
+  </ol>
+  @if (reviewing() && !choosingPacket()) {
+    <div class="guided-context-actions">
+      <button mat-button (click)="choosingPacket.set(true)" [disabled]="w.busy() || !!w.pendingUpload()">Open another packet</button>
+      <button mat-button class="guided-details-toggle" data-testid="guided-details-toggle" (click)="detailsOpen.set(!detailsOpen())" [attr.aria-expanded]="detailsOpen()" aria-controls="guided-labels">{{ detailsOpen() ? 'Hide details' : 'Details' }}</button>
+    </div>
+  }
+  </div>
+  @if (choosingPacket()) {
+    <div class="section-heading"><h2>Open a packet</h2><button mat-button (click)="choosingPacket.set(false)">Back</button></div>
+    <label>Search packets<input type="search" [(ngModel)]="search" placeholder="Packet name" /></label>
+    <nav class="guided-packet-list" aria-label="Existing packets">
+      @for (p of packets(); track p.id) {
+        <button class="packet-item" (click)="open(p.id)" [disabled]="w.busy()"><span class="packet-name">{{ p.name }}</span><span class="packet-meta">{{ p.pages.length }} pages <span class="badge" [class.approved]="p.status === 'approved'">{{ p.status }}</span></span></button>
+      } @empty { <p class="small muted">No matching packets.</p> }
+    </nav>
+  } @else {
+    <h2 class="wizard-title" [class.visually-hidden]="reviewing()" aria-live="polite" data-testid="classification-step">Step {{ step() + 1 }} of 4 · {{ labels[step()] }}</h2>
+    @if (w.classificationStage() === 'upload') {
+      <label>Intake workflow<select data-testid="workflow-select" [ngModel]="w.workflowSelection()" (ngModelChange)="w.workflowSelection.set($event)" [disabled]="w.busy() || w.workflows.loading() || !!w.pendingUpload()">
+        <option value="">Default: {{ w.workflows.defaultEntry()?.name || 'Unavailable' }}</option>
+        @for (workflow of w.workflows.published(); track workflow.id + '@' + workflow.version) { <option [value]="w.refKey(workflow)">{{ workflow.name }} · v{{ workflow.version }}</option> }
+      </select></label>
+      <p class="small muted">{{ w.selectedWorkflow()?.workflow?.mode === 'simulation' ? 'Simulation · Local rules, no OCR' : 'Live classification' }} · PDF, PNG, JPG · {{ w.config()?.maxUploadMb ?? 25 }} MB</p>
+      <div class="catalog-actions">
+        <button mat-flat-button (click)="w.chooseUpload()" [disabled]="!w.uploadReady() || w.busy() || !!w.pendingUpload()">Upload packet</button>
+        <button mat-stroked-button data-testid="demo-button" (click)="w.demo()" [disabled]="w.busy() || w.loading() || !!w.pendingUpload()">Try demo packet</button>
+        <button mat-button data-testid="existing-packets" (click)="choosingPacket.set(true)" [disabled]="w.busy() || !!w.pendingUpload()">Open existing packet ({{ w.packets().length }})</button>
+      </div>
+      @if (!w.uploadReady() && !w.loading()) { <p class="small muted">Choose an available workflow or configure providers in Advanced.</p> }
+    } @else if (w.packet(); as packet) {
+      @if (!reviewing()) {
+      <div class="section-heading guided-packet-heading"><h3 data-testid="packet-name">{{ packet.name }}</h3><span class="badge" [class.approved]="packet.status === 'approved'">{{ packet.status }}</span></div>
+      <p class="small muted">{{ packet.workflow?.name }} · {{ packet.pages.length }} pages · {{ packet.mode }}</p>
+      <button mat-button (click)="choosingPacket.set(true)" [disabled]="w.busy() || !!w.pendingUpload()">Open another packet</button>
+      }
+      @if (packet.testRun) { <span class="badge test-badge" data-testid="test-run-badge">Test preview</span> }
+      @if (packet.status === 'queued' || packet.status === 'processing') {
+        <div class="processing"><mat-progress-bar mode="indeterminate" aria-label="Classifying packet" /><h3>Classifying packet…</h3><p class="small muted">{{ packet.processing?.stage }}</p><button mat-stroked-button (click)="w.lifecycle('cancel')" [disabled]="w.busy() || w.stale()">Cancel processing</button></div>
+      } @else if (packet.status === 'failed') {
+        <p class="alert error" role="alert">{{ packet.error || 'Classification could not finish.' }}</p>
+        <button mat-flat-button (click)="w.retry()" [disabled]="w.busy()">Retry processing</button>
+        <button mat-button (click)="w.newClassification()" [disabled]="w.busy() || !!w.pendingUpload()">Back to upload</button>
+      } @else if (packet.status === 'cancelled') {
+        <p>Processing cancelled.</p>
+        <button mat-flat-button (click)="w.lifecycle('reprocess')" [disabled]="w.busy() || w.stale()">Start a new run</button>
+        <button mat-button (click)="w.newClassification()" [disabled]="w.busy() || !!w.pendingUpload()">Back to upload</button>
+      } @else if (w.classificationStage() === 'review') {
+        @if (w.selectedDoc(); as doc) {
+          <div class="guided-review-layout" [class.details-open]="detailsOpen()">
+            <section class="guided-source" aria-label="Source preview">
+              @if (w.selected(); as page) {
+                <div class="guided-page-navigation">
+                  <button mat-button (click)="movePage(-1)" [disabled]="pageIndex() <= 0">Previous page</button>
+                  <span class="small">Page {{ pageIndex() + 1 }} of {{ doc.pageIds.length }}</span>
+                  <button mat-button (click)="movePage(1)" [disabled]="pageIndex() >= doc.pageIds.length - 1">Next page</button>
+                  <div class="preview-zoom-controls" role="group" aria-label="Document zoom">
+                    <button mat-button data-testid="preview-fit" (click)="zoom.set(1)" [attr.aria-pressed]="zoom() === 1">Fit page</button>
+                    <button mat-button data-testid="preview-zoom-out" (click)="changeZoom(-.25)" [disabled]="zoom() <= 1" aria-label="Zoom out">−</button>
+                    <span class="small" data-testid="preview-zoom-level" aria-live="polite">{{ zoom() === 1 ? 'Fit' : (zoom() * 100) + '%' }}</span>
+                    <button mat-button data-testid="preview-zoom-in" (click)="changeZoom(.25)" [disabled]="zoom() >= 3" aria-label="Zoom in">＋</button>
+                  </div>
+                </div>
+                <div class="large-preview" [class.preview-zoomed]="zoom() > 1" [style.--preview-zoom]="zoom()" tabindex="0" aria-label="Document preview; scroll to pan when zoomed"><app-page-preview [url]="page.previewUrl" [name]="page.sourceName" [pageNumber]="page.pageNumber" /></div>
+                <a class="source-link" [href]="page.previewUrl" target="_blank" rel="noopener">Open original source ↗</a>
+              }
+            </section>
+            <section id="guided-labels" class="guided-document-fields" aria-label="Document labels" data-testid="guided-document">
+              <h3>Document {{ documentIndex() + 1 }} of {{ w.documents().length }}</h3>
+              <span class="badge" [class.approved]="packet.status === 'approved'">{{ packet.status }}</span>
+              @if (w.classification(doc); as score) {
+                <p class="confidence-chip" [class.uncertain]="score.uncertain" data-testid="guided-confidence" title="Uncalibrated score for guidance only; every packet is still approved by a person.">
+                  @if (score.changed) { Type changed by reviewer }
+                  @else { {{ w.label(doc.type) }} · {{ score.percent }}% {{ score.kind }}@if (score.uncertain) { · check this document } }
+                  @if (score.boundary && !score.changed) { <br /><span class="small">Unsure where this document starts or ends.</span> }
+                </p>
+              }
+              <label>Document type<select data-testid="guided-document-type" [ngModel]="doc.type" (ngModelChange)="w.change(doc.id, 'type', $event)" [disabled]="!w.editable()">@for (type of w.reviewTypes(); track type.id) { <option [value]="type.id">{{ type.label }}</option> }</select></label>
+              <label [class.required-field]="w.shipmentRequired()">{{ w.referenceLabel() }}<input data-testid="guided-reference" [ngModel]="doc.businessReference" (ngModelChange)="w.change(doc.id, 'businessReference', $event)" [disabled]="!w.editable()" [placeholder]="w.referenceHint()" [required]="w.shipmentRequired()" [attr.aria-invalid]="w.shipmentRequired() && doc.type !== 'unknown' && !doc.businessReference.trim()" /></label>
+              @if (w.shipmentRequired()) {
+                <div class="shipment-check" role="status" data-testid="shipment-check">
+                  @if (!doc.businessReference.trim() && doc.type !== 'unknown') { <p class="warning">Enter the Shipment ID for this document. It's required before approval.</p> }
+                  @else if (w.selectedReference(); as r) {
+                    @switch (r.status) {
+                      @case ('verified') { <p class="success">Shipment found{{ r.matches[0]?.label ? ': ' + r.matches[0].label : '' }}</p> }
+                      @case ('candidate') { <p class="success">Shipment found{{ r.matches[0]?.label ? ': ' + r.matches[0].label : '' }}</p> }
+                      @case ('notFound') { <p class="warning">Shipment {{ r.reference }} wasn't found. Check the number.</p> }
+                      @case ('ambiguous') { <p class="warning">More than one shipment matches. Pick the right one.</p> }
+                      @default { <p class="muted small">Shipment lookup is unavailable right now.</p> }
+                    }
+                  } @else if (doc.businessReference.trim()) { <p class="muted small">Not checked yet.</p> }
+                  @if ((w.selectedReference()?.candidateReferences?.length ?? 0) > 1) {
+                    <div class="catalog-actions">@for (id of w.selectedReference()!.candidateReferences!; track id) { <button mat-stroked-button (click)="w.useReference(id)" [disabled]="!w.editable()">Use {{ id }}</button> }</div>
+                  }
+                  <button mat-stroked-button data-testid="check-shipment" (click)="w.checkShipment()" [disabled]="!w.editable() || w.checkingShipment() || !doc.businessReference.trim()">{{ w.checkingShipment() ? 'Checking…' : 'Check shipment' }}</button>
+                </div>
+              }
+              @if (w.identifierCandidates().length) {
+                <details [open]="w.shipmentRequired() && !doc.businessReference.trim()"><summary>{{ w.shipmentRequired() ? 'Shipment IDs found on this document' : 'Suggested references' }}</summary>@for (candidate of w.identifierCandidates(); track $index) { <div class="reference-candidate"><strong>{{ candidate.value }}</strong><p class="small muted">{{ candidate.evidence }}</p><button mat-button (click)="w.useReference(candidate.value)" [disabled]="!w.editable()">{{ w.shipmentRequired() ? 'Use as Shipment ID' : 'Use reference' }}</button></div> }</details>
+              }
+              @if (doc.reviewReasons.length) { <details><summary>Review notes</summary><ul class="small">@for (reason of doc.reviewReasons; track $index) { <li>{{ reason }}</li> }</ul></details> }
+              <div class="catalog-actions"><button mat-stroked-button data-testid="guided-save" (click)="w.save(false)" [disabled]="!w.editable() || !w.dirty()">Save draft</button><span class="small muted">{{ w.dirty() ? 'Unsaved changes' : 'Saved' }}</span></div>
+              <button mat-button class="guided-reorganize" (click)="w.setClassificationAdvanced(true)" [disabled]="w.busy()">Split or reorganize pages</button>
+              <details class="guided-packet-details"><summary>Packet details</summary><p data-testid="packet-name">{{ packet.name }}</p><p class="small muted">{{ packet.workflow?.name }} · {{ packet.pages.length }} pages · {{ packet.mode }}</p></details>
+              @if (w.selected(); as page) { <details class="ocr"><summary>Extracted text</summary><pre>{{ page.text || 'No text extracted.' }}</pre></details> }
+            </section>
+          </div>
+          <div class="wizard-navigation">
+            @if (documentIndex() > 0) { <button mat-stroked-button data-testid="previous-document" (click)="w.selectDocument(documentIndex() - 1)" [disabled]="w.busy()">Previous document</button> }
+            @else { <button mat-stroked-button (click)="w.newClassification()" [disabled]="w.busy() || !!w.pendingUpload()">Back to upload</button> }
+            @if (documentIndex() < w.documents().length - 1) { <button mat-flat-button data-testid="next-document" (click)="w.selectDocument(documentIndex() + 1)" [disabled]="w.busy()">Next document</button> }
+            @else { <button mat-flat-button data-testid="finish-classification-review" (click)="finishReview()" [disabled]="!w.editable()">Continue to approval</button> }
+          </div>
+        } @else { <p>No document groups are available.</p><button mat-button (click)="w.setClassificationAdvanced(true)">Open Advanced</button> }
+      } @else if (w.classificationStage() === 'approve') {
+        <h3>Confirm the document groups</h3>
+        <ul class="guided-summary">@for (doc of w.documents(); track doc.id; let index = $index) { <li [class.needs-check]="w.classification(doc)?.uncertain"><div><strong>{{ index + 1 }} · {{ w.label(doc.type) }}@if (w.classification(doc); as score) { @if (!score.changed) { <span class="small muted"> · {{ score.percent }}%</span> } @if (score.uncertain) { <span class="confidence-chip uncertain small">Check</span> } }</strong><p class="small muted">{{ doc.pageIds.length }} pages{{ doc.businessReference ? ' · ' + (w.shipmentRequired() ? 'Shipment ' : '') + doc.businessReference : (w.shipmentRequired() && doc.type !== 'unknown' ? ' · Shipment ID missing' : '') }}</p></div><button mat-button (click)="w.selectDocument(index)" [disabled]="w.busy()">Edit document {{ index + 1 }}</button></li> }</ul>
+        <div class="wizard-navigation"><button mat-stroked-button (click)="w.classificationStage.set('review')" [disabled]="w.busy()">Back to review</button><button mat-flat-button data-testid="guided-approve" (click)="approve()" [disabled]="!w.editable() || !w.documents().length || w.missingShipments().length > 0">Approve packet</button></div>
+        @if (w.missingShipments().length) { <p class="warning" role="alert">Add a Shipment ID to {{ w.missingShipments().length === 1 ? 'one document' : w.missingShipments().length + ' documents' }} before approving.</p> }
+        @if (w.error()) { <button mat-button (click)="w.setClassificationAdvanced(true)" [disabled]="w.busy()">Open Advanced tools</button> }
+      } @else if (w.classificationStage() === 'export' && packet.status === 'approved' && !w.dirty()) {
+        <h3>Ready to download</h3>
+        <a mat-flat-button [href]="w.exportUrl()" data-testid="guided-export">Download ZIP</a>
+        <ul class="guided-summary">@for (doc of w.documents(); track doc.id; let index = $index) { <li><span>{{ index + 1 }} · {{ w.label(doc.type) }} · {{ doc.pageIds.length }} pages</span><a mat-button [href]="w.documentDownloadUrl(doc.id)" [attr.aria-label]="'Download document ' + (index + 1)">Download PDF</a></li> }</ul>
+        <div class="wizard-navigation"><button mat-stroked-button (click)="w.selectDocument(0)" [disabled]="w.busy()">Back to review</button><button mat-flat-button (click)="w.newClassification()" [disabled]="w.busy() || !!w.pendingUpload()">Classify another packet</button></div>
+      }
+    }
+  }
+</main>
