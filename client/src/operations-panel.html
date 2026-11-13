@@ -1,0 +1,50 @@
+<section class="operations-platform" aria-label="Shared review operations">
+  <header><h2>Review operations</h2><button type="button" [disabled]="busy()" (click)="refresh()">Refresh</button></header>
+  @if (error()) { <p role="alert" class="error">{{ error() }}</p> }
+  @if (session(); as current) {
+    @if (!current.authenticated) {
+      <p>Shared mode requires an allowed account. Use your configured server token or your organization’s configured sign-in.</p>
+      <form (ngSubmit)="signIn()"><label>Access token <input name="token" type="password" autocomplete="off" [(ngModel)]="token" /></label><button type="submit" [disabled]="busy() || !token">Sign in</button></form>
+      <p class="muted">The token is cleared after sign-in. The session uses an HTTP-only cookie and expires after eight hours.</p>
+    } @else {
+      <p>{{ current.mode }} · {{ current.identity?.name }} @if (current.mode === 'shared') { <button type="button" [disabled]="busy()" (click)="signOut()">Sign out</button> }</p>
+      @if (stats(); as counts) { <p class="metrics">Available {{ counts.available }} · Claimed {{ counts.claimed }} · Completed {{ counts.completed }} · Overdue {{ counts.overdue }}</p> }
+      <div class="controls"><label><input type="checkbox" [(ngModel)]="showAll" /> All permitted packets</label><label>Lease seconds <input type="number" min="30" max="3600" [(ngModel)]="leaseSeconds" /></label></div>
+      <p class="muted">Tasks are ordered by priority, then due date. Claim the current packet revision before saving a review in shared mode. Refresh after a conflict or lease expiry.</p>
+      @if (canReview() && packetId && revision > 0) { <button type="button" [disabled]="busy()" (click)="openReview()">Open review task for selected packet</button> }
+      @for (task of visibleTasks(); track task.id) {
+        <article [class.selected]="task.packetId === packetId">
+          <strong>{{ task.workflowId }} · {{ task.state }} · priority {{ task.priority }}</strong>
+          <p>Packet {{ task.packetId }} · revision {{ task.packetRevision }} · due {{ task.dueAt | date:'medium' }}</p>
+          @if (task.claimedBy) { <p>Claimed by {{ task.claimedBy }} until {{ task.leaseUntil | date:'medium' }}</p> }
+          @if (task.outcome) { <p>Outcome: {{ task.outcome }}</p> }
+          <div class="controls">
+            @if (canReview() && task.state === 'available') { <button type="button" [disabled]="busy()" (click)="change(task, 'claim')">Claim</button> }
+            @if (owned(task)) { <button type="button" [disabled]="busy()" (click)="change(task, 'renew')">Renew lease</button><button type="button" [disabled]="busy()" (click)="change(task, 'release')">Release</button> }
+          </div>
+          @if (administrator() && (task.state === 'available' || task.state === 'claimed')) {
+            <details><summary>Set priority and due date</summary><label>Priority <input type="number" min="0" max="100" [(ngModel)]="schedulePriority" /></label><label>Due <input type="datetime-local" [(ngModel)]="scheduleDue" /></label><button type="button" [disabled]="busy()" (click)="schedule(task)">Save schedule</button></details>
+          }
+          <details><summary>Task history</summary>@for (event of task.history; track event.revision) { <p>{{ event.at | date:'medium' }} · {{ event.actor }} · {{ event.action }} @if (event.outcome) { · {{ event.outcome }} }</p> }</details>
+        </article>
+      } @empty { <p>No review tasks in this view.</p> }
+      @if (retention(); as policy) {
+        <details><summary>Retention policy and preview</summary>
+          <p>Minimum age: {{ policy.policy.minimumAgeDays }} days. Execution {{ policy.policy.executionEnabled ? 'enabled' : 'disabled' }}. {{ policy.executionMode }}.</p>
+          <p class="muted">Archiving retains originals and history. Permanent deletion requires a separate server setting and a clear dependency check; review history, delivery snapshots and unregistered module dependencies block deletion.</p>
+          <label><input type="checkbox" [(ngModel)]="confirmArchive" /> Confirm logical archive of a selected eligible packet</label>
+          @for (candidate of policy.candidates; track candidate.packetId) {
+            <article><strong>{{ candidate.packetId }}</strong><p>{{ candidate.eligible ? 'Eligible for archive' : candidate.reasons.join(' ') }}</p>
+              <button type="button" [disabled]="busy() || !candidate.eligible || !policy.policy.executionEnabled || !confirmArchive" (click)="archive(candidate)">Archive</button>
+              <button type="button" [disabled]="busy()" (click)="previewPurge(candidate.packetId)">Check permanent-deletion dependencies</button>
+              @if (plan(); as preview) { @if (preview.packetId === candidate.packetId) {
+                <p>{{ preview.eligible ? 'Dependency check passed.' : preview.blockers.join(' ') }}</p>
+                @if (preview.eligible) { <label><input type="checkbox" [(ngModel)]="confirmPurge" /> Confirm irreversible deletion of this packet’s originals</label><button type="button" [disabled]="busy() || !confirmPurge" (click)="purge(candidate)">Permanently delete</button> }
+              } }
+            </article>
+          }
+        </details>
+      }
+    }
+  }
+</section>

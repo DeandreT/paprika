@@ -1,0 +1,18 @@
+:host { display: block; margin-block: 1rem; }
+.operations-platform { padding: 1rem; background: var(--app-surface-low); color: var(--app-text); border-radius: .5rem; }
+header, .controls, form { display: flex; flex-wrap: wrap; align-items: center; gap: .75rem; }
+header { justify-content: space-between; }
+h2 { margin: 0; font-size: 1.1rem; }
+article { background: var(--app-surface); padding: .8rem; margin-block: .6rem; border-radius: .4rem; overflow-wrap: anywhere; }
+article.selected { box-shadow: inset 3px 0 var(--app-accent); }
+p { margin-block: .5rem; }
+label { display: inline-flex; flex-wrap: wrap; align-items: center; gap: .4rem; margin: .35rem; }
+input { max-width: 100%; padding: .35rem; }
+input[type=number] { width: 6rem; }
+button { padding: .4rem .65rem; cursor: pointer; }
+button:disabled { cursor: default; }
+details { margin-block: .65rem; }
+summary { cursor: pointer; font-weight: 600; }
+.muted { color: var(--app-muted); font-size: .9rem; }
+.error { color: var(--app-error); }
+.metrics { font-weight: 600; }

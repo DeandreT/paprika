@@ -1,0 +1,35 @@
+import { test, expect } from '@playwright/test';
+import { menuAction } from './navigation';
+
+test('team operations panel claims, renews and releases a durable task and previews safe retention', async ({ page, request }) => {
+  const session = await (await request.get('/api/operations-platform/session')).json();
+  test.skip(session.mode !== 'local', 'Shared login and authorization are exercised by the isolated OperationsApiTests factory.');
+  const accepted = await request.post('/api/packets/demo', { headers: { 'X-PaperworkClassifier': '1' } });
+  expect(accepted.ok()).toBeTruthy();
+  const packet = await accepted.json();
+  await expect.poll(async () => (await (await request.get(`/api/packets/${packet.id}`)).json()).status).toBe('review');
+  await page.goto('/');
+  await menuAction(page, 'classification-advanced');
+  await menuAction(page, 'platform-toggle');
+  await page.getByRole('button', { name: 'Team access and tasks', exact: true }).click();
+  const panel = page.getByRole('region', { name: 'Shared review operations' });
+  await expect(panel.getByRole('heading', { name: 'Review operations' })).toBeVisible();
+  await expect(panel.getByText('local · local', { exact: false })).toBeVisible();
+  const card = panel.locator('article').filter({ has: page.getByText(`Packet ${packet.id} · revision`, { exact: false }) });
+  await expect(card).toHaveCount(1);
+  await card.getByRole('button', { name: 'Claim', exact: true }).click();
+  await expect(card.getByText('Claimed by local until', { exact: false })).toBeVisible();
+  await card.getByRole('button', { name: 'Renew lease', exact: true }).click();
+  await card.getByRole('button', { name: 'Release', exact: true }).click();
+  await expect(card.getByRole('button', { name: 'Claim', exact: true })).toBeEnabled();
+  await card.getByText('Task history', { exact: true }).click();
+  await expect(card.getByText('· local · renew', { exact: false })).toBeVisible();
+  await expect(card.getByText('· local · release', { exact: false })).toBeVisible();
+  await panel.getByText('Retention policy and preview', { exact: true }).click();
+  await expect(panel.getByText('Minimum age:', { exact: false })).toBeVisible();
+  await expect(panel.getByText('Archiving retains originals and history.', { exact: false })).toBeVisible();
+  const preview = await (await request.get('/api/operations-platform/retention')).json();
+  expect(preview.candidates.find((candidate: { packetId: string }) => candidate.packetId === packet.id).eligible).toBe(false);
+  await page.setViewportSize({ width: 390, height: 844 });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+});
