@@ -1,0 +1,61 @@
+# Extraction, visual recognition, preprocessing and enhanced outputs
+
+All operations use local data and `jobs.sqlite`; no external service is invoked by these modules. Provider OCR geometry is consumed only if already present on a source. The original files are never modified.
+
+## Field and table extraction
+
+`ExtractionPanelComponent` (`app-extraction-panel`) supports global definition creation without a selected packet, structured field/table editors, packet extraction, evidence inspection, correction, visual-template creation/comparison, image transformation and output generation. Inputs are `packetId` and `revision`; `refreshed` is emitted after a packet-changing correction. Workflow capability attachment is handled by the shared capability editor.
+
+Definitions have immutable `(id, version)` identities and SHA-256 content hashes. A field selects either a literal label followed by `:`/`=` or a bounded regular expression, with optional named `value` capture. Patterns are limited to 1,000 characters, run with a 100 ms timeout, and pages/candidate counts are bounded. Supported normalization: trimmed text; invariant decimal; `yyyy-MM-dd` or `MM/dd/yyyy` date; yes/no/true/false boolean. Results distinguish `extracted`, `missing`, `ambiguous`, `invalid` and `corrected`. Multiple distinct normalized values remain ambiguous; extraction never silently chooses the first candidate.
+
+Delimited tables use an exact header line followed by rows with the configured number of columns. Pipe, comma, tab and semicolon delimiters are supported; quoted delimiters and doubled quotes are parsed. Blank/malformed rows terminate a table. This is real delimited-table extraction, not general visual table inference; multi-line quoted cells are not supported. Each field/cell has page ID, original text offsets/length, exact evidence text and full-page text SHA-256. Delimited-cell evidence includes original quote characters while the value is decoded.
+
+Runs bind packet revision and exact workflow hash. Corrections re-read the packet in an immediate SQLite transaction, enforce revision/claim checks, validate evidence hashes/text and document membership, normalize the replacement and append immutable correction/run history. Approval is invalidated and the packet revision advances. Original predictions and run values remain intact. Review carries corrected extraction to a later revision only when the workflow and document ID/type/ordered page IDs are unchanged; changed documents are re-extracted. Re-running configured extraction reuses the current corrected run rather than overwriting human values. `ExtractionPlatform.Current` returns an exact-current run.
+
+## Visual templates and preprocessing
+
+SkiaSharp 3.119.1 and its Windows native assets are MIT-licensed. Docnet.Core 2.6.0 is MIT-licensed and supplies PDFium native binaries with their accompanying license. Windows x64 native loading and actual PDF rendering are covered by executable tests. Runtime native dependencies must accompany published deployments; a missing native library is a deployment failure, never a silent text-rule fallback.
+
+PDFs are rasterized through PDFium using a fitted 1600×2200 viewport, with a 4-million-pixel page cap, 250-page cap and 64 MiB file cap. PNG/JPEG images decode through SkiaSharp with a 40-megapixel cap. Visual recognition computes 32×32 grayscale-intensity layout features from actual decoded/rendered pixels and compares cosine similarity with labeled immutable templates. It does not use OCR keywords. Features include whitespace/layout and are deliberately simple, not a claim of trained deep visual understanding or measured production accuracy. Blank images return unknown. Scores below a configured threshold, or insufficient margins between competing labels, return `unknown`. Similarities are not calibrated probabilities. All-template diagnostic runs preserve packet predictions; a frozen workflow can explicitly enable prediction override.
+
+Templates bind ID/version, label, source hash, selected source page, feature algorithm, feature values and creation time. A template can be trained from a source page or an existing derivative owned by that same packet/source/page. Template versions are immutable. Snapshots include exact template versions, hashes and feature arrays.
+
+Preprocessing implements actual 0/90/180/270-degree pixel rotation, grayscale conversion and bounded contrast adjustment. Originals and their hashes are preserved; PNG derivatives get independent IDs, dimensions, hashes and transformation metadata under the application-controlled data root. Configured preprocessing runs automatically in the recognition pipeline hook even when recognition itself is disabled; recognition compares those transformed pixels when both are configured. It runs after existing OCR, so it does not retroactively correct OCR text. Automatic orientation detection is not implemented; rotation is explicit. The API supports individual source-page transformations.
+
+## Outputs and approval
+
+Formats:
+
+- `text-json`: reconstructed OCR text with requested literal values removed/replaced.
+- `redacted-text-pdf`: a new, searchable standard-font PDF containing only sanitized OCR text; original layout/images/metadata are not imported.
+- `searchable-image-pdf`: decoded/rasterized source pixels plus an actual invisible, positioned PDF text layer from provider OCR line polygons. Plain text without geometry is rejected. Latin-1 PDF text is supported; use JSON for Unicode.
+- `redacted-image-pdf`: pixel replacement inside explicit page rectangles, followed by re-encoding into a fresh PDF. The entire text layer is omitted. No original PDF objects, embedded files, original image stream, annotations or metadata are copied. Region coordinates are original image pixels or the fitted PDF raster pixels. Inspect derivative dimensions before specifying PDF regions.
+
+Redaction is never a rectangle overlay over retained source content. Pixel-redacted PDF requires at least one explicit region and rejects unknown pages/out-of-bounds regions. Text-only replacement requests are rejected for pixel redaction; searchable image output rejects redaction arguments. Users must identify all sensitive regions; the system does not claim automatic sensitive-data discovery.
+
+Automatic workflow output policies cannot select `redacted-image-pdf`: a global policy has no page-specific reviewed regions. Use the per-packet reviewed output operation with explicit regions after approval instead. Workflow policies also reject `searchable-image-pdf` combined with text redaction values, because retaining source pixels would not remove those values. Choose sanitized text JSON/PDF for automatic text replacement, or per-packet pixel-redacted PDF for reviewed image redaction. Ad-hoc pixel-redacted output remains supported for both PDF and image sources.
+
+Explicit approval of the **current exact revision** is required for API output generation and download, including required reference verification. Old revision files and internal preview artifacts cannot be downloaded through current output routes. Internal flow generation can create `preview` artifacts, but they remain inaccessible; approval advances revision and requires a new exact-revision artifact. An optional `idempotencyKey` on `OutputPlatform.Save` reuses identical packet/revision/request/source/workflow output and rejects conflicting requests under the same key. Files live only beneath controlled `outputs/` and `derivatives/` directories, never caller-supplied paths.
+
+## API and integration hooks
+
+- `GET/POST /api/extraction/definitions`: list/create immutable definitions (administrative).
+- `GET /api/extraction/{packetId}`: runs and immutable correction history.
+- `POST /api/extraction/{packetId}/run`: `{revision, definitionId, version}`.
+- `POST /api/extraction/{packetId}/corrections`: typed field correction with current evidence and reason.
+- `GET/POST /api/recognition/templates`: list/train immutable templates (administrative).
+- `GET /api/recognition/{packetId}` and `POST .../run`: provenance and diagnostic comparison.
+- `GET/POST /api/preprocessing/{packetId}`: list/create derivatives; POST includes `sourceId`, optional `pageNumber` and typed policy.
+- `GET /api/preprocessing/{packetId}/derivatives/{id}/image`: ownership-checked PNG download.
+- `GET/POST /api/outputs/{packetId}`: list/create approved-revision output artifacts.
+- `GET /api/outputs/{packetId}/files/{id}`: current approved output download.
+
+All endpoints are named and have explicit response metadata. Global definitions/templates require administrative access; packet routes carry workflow-scoped permissions. Corrections recheck reviewer claims inside their transaction; ancillary mutations use `ValidateMutation`. Server-resolved identity supplies correction actor history.
+
+Host mapping: `MapExtractionEndpoints`, `MapRecognitionEndpoints`, `MapPreprocessingEndpoints`, `MapOutputEndpoints`. Pipeline: `await RecognitionPlatform.ApplyAsync(store, packet, token)` after OCR/classification and before assembly; `ExtractionPlatform.RunConfigured(store, packet)` after assembly. Review: `ExtractionPlatform.OnReview(connection, transaction, before, after, actor)`. Registry freezer overloads use the supplied SQLite connection/transaction, clone embedded values and require exact hashes. Policies are typed `ExtractionPolicy`, `RecognitionPolicy`, `PreprocessingPolicy`, and `OutputPolicy`; absent capabilities preserve historical behavior/hashes.
+
+`ExtractionRetentionParticipant` declares `extraction_objects`, purges removable packet-bound result/history rows transactionally and blocks physical privacy purge when immutable output/derivative files or source-backed templates still need explicit verified cleanup. Global versioned definitions/templates are retained deliberately. It never calls a logical archive a privacy purge.
+
+## Offline regression coverage
+
+Owned tests cover synthetic labeled forms; normalized/missing/ambiguous fields; genuinely parsed quoted table cells and evidence spans; stale correction revisions/evidence; immutable human corrections and review carry/invalidation; exact definition freeze; visual differentiation/ties/blanks using real synthetic images; real rotation/grayscale/contrast; automatic configured PDF preprocessing without a recognition policy; native PDF rendering; PdfPig-extracted sanitized PDF text; raster-redacted PDF absence of source text and black rendered pixels; positioned invisible OCR text; and output idempotency conflicts. No production calls are used.
