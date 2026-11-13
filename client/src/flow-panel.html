@@ -1,0 +1,53 @@
+<section aria-label="Composable flows">
+  <h3>Composable flows</h3>
+  @if (error()) { <p role="alert">{{ error() }}</p> }
+  @if (notice()) { <p role="status">{{ notice() }}</p> }
+  @if (packetId()) {
+    <button type="button" (click)="loadRun()" [disabled]="busy()">Refresh execution</button>
+    @if (run(); as current) {
+      <p>{{ current.definition.name }} · immutable snapshot <code>{{ current.definitionHash }}</code></p>
+      <ol>@for (block of current.definition.blocks; track block.id) {
+        <li><strong>{{ block.id }}</strong> · {{ block.kind }}
+          @for (execution of current.executions; track execution.blockId) { @if (execution.blockId === block.id) {
+            <span> · {{ execution.status }} · attempt {{ execution.attempt }}</span>
+            @if (execution.error) { <p>{{ execution.error }}</p> }
+            @if (execution.status === 'failed' || execution.status === 'running') { <button type="button" (click)="retry(block.id)" [disabled]="busy()">Retry / recover block</button> }
+          } }
+        </li>
+      }</ol>
+      <p class="small">Running work requires a 15-minute abandonment window before recovery. The same idempotency key is reused.</p>
+    } @else { <p>No durable flow execution for this packet.</p> }
+  }
+  <button type="button" (click)="loadLibrary()">Manage reusable definitions (administrator)</button>
+  @if (editorOpen()) {
+    <p>Build a bounded typed graph. Dependencies must appear earlier. Conditions use document types or results from dependency ancestors.</p>
+    <div class="actions"><button type="button" (click)="newDefinition()">New definition</button>@for (entry of library(); track entry.id) { <button type="button" (click)="load(entry)">{{ entry.definition.name }} · r{{ entry.revision }}</button> }</div>
+    <label>Flow identity<input [(ngModel)]="flowId" [disabled]="libraryRevision > 0" maxlength="100" /></label>
+    <label>Name<input [(ngModel)]="definition.name" maxlength="120" /></label>
+    @for (block of definition.blocks; track $index; let index = $index) {
+      <fieldset>
+        <legend>{{ index + 1 }} · {{ block.kind }}</legend>
+        <label>Block identity<input [ngModel]="block.id" (ngModelChange)="rename(block, $event)" maxlength="100" /></label>
+        <label>Reusable block<select [ngModel]="block.templateId || ''" (ngModelChange)="useTemplate(block, $event)"><option value="">Own configuration</option>@for (template of definition.templates; track template.id) { <option [value]="template.id">{{ template.id }}</option> }</select></label>
+        <div>Dependencies: @for (previous of earlier(index); track $index) { <label class="inline"><input type="checkbox" [checked]="block.dependsOn.includes(previous.id)" (change)="dependency(block, previous.id, $any($event.target).checked)" />{{ previous.id }}</label> } @empty { <span>none (entry block)</span> }</div>
+        <label>Run condition<select [ngModel]="block.when?.kind || ''" (ngModelChange)="condition(block, $event)"><option value="">Always after dependencies</option>@for (kind of conditions; track kind) { <option [value]="kind">{{ kind }}</option> }</select></label>
+        @if (block.when; as condition) {
+          <label>Document type / field / verified reference<input [(ngModel)]="condition.key" maxlength="100" /></label>
+          @if (condition.kind === 'FieldEquals') { <label>Equals<input [(ngModel)]="condition.value" maxlength="500" /></label> }
+          <label class="inline"><input type="checkbox" [(ngModel)]="condition.negate" />Invert condition</label>
+        }
+        @if (!block.templateId && block.operations; as operations) {
+          @for (operation of operations; track $index) {
+            <div class="operation"><label>Operation<select [(ngModel)]="operation.kind">@if (block.kind === 'Transform') { <option>Trim</option><option>Uppercase</option><option>Lowercase</option> }<option>RequireValue</option></select></label><label>Source field<input [(ngModel)]="operation.source" maxlength="100" /></label><label>Target field<input [(ngModel)]="operation.target" maxlength="100" /></label><button type="button" (click)="operations.splice($index, 1)">Remove operation</button></div>
+          }
+          <button type="button" (click)="operations.push({kind: 'RequireValue', source: 'value', target: 'value'})" [disabled]="operations.length >= 32">Add safe operation</button>
+        }
+        <div class="actions"><button type="button" (click)="reusable(block)" [disabled]="!!block.templateId">Save as reusable block</button><button type="button" (click)="removeBlock(block)">Remove block</button></div>
+      </fieldset>
+    }
+    <label>New block kind<select [(ngModel)]="nextKind">@for (kind of kinds; track kind) { <option [value]="kind">{{ kind }}</option> }</select></label>
+    <div class="actions"><button type="button" (click)="addBlock()" [disabled]="definition.blocks.length >= 64">Add block</button><button type="button" (click)="save()" [disabled]="busy() || !flowId || !definition.blocks.length">Validate and save</button></div>
+    <p class="small">Choose a saved flow in the draft workflow's capabilities to use it for new submissions.</p>
+    <p class="small">Reference, extraction, quality, case and output blocks use registered application handlers. Transform and validate blocks use safe typed operations; executable code is not supported.</p>
+  }
+</section>
