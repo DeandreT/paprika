@@ -1,0 +1,37 @@
+<section aria-label="Cross-submission cases">
+  <h3>Cross-submission cases</h3>
+  <p>Cases retain explicitly selected documents across packet submissions. Completeness uses the expected document-type checklist, not a matching file name.</p>
+  <button type="button" (click)="refresh()" [disabled]="busy()">Refresh cases</button>
+  @if (error()) { <p role="alert">{{ error() }}</p> } @if (notice()) { <p role="status">{{ notice() }}</p> }
+  @if (!packetId()) { <label>Source submission<select [(ngModel)]="selectedPacketId" (ngModelChange)="refresh()"><option value="">Choose a submission</option>@for (candidate of packets(); track candidate.id) { <option [value]="candidate.id">{{ candidate.name || candidate.id }}</option> }</select></label> }
+  @if (packet(); as current) {
+    <fieldset><legend>Select explicit membership from {{ current.name || current.id }}</legend>
+      @for (document of current.documents; track document.id) { <label class="inline"><input type="checkbox" [checked]="selectedDocuments.includes(document.id)" (change)="selectDocument(document.id, $any($event.target).checked)" />{{ document.type }} · {{ document.businessReference || document.id }}</label> }
+      <label>Business reference<input [(ngModel)]="businessReference" maxlength="500" /></label>
+      <button type="button" (click)="create()" [disabled]="busy() || !businessReference || !selectedDocuments.length">Create case with selected documents</button>
+      <p class="small">Manual references remain unverified. Automatic collation requires trusted reference evidence and the same customer, workflow and test scope.</p>
+    </fieldset>
+  }
+  @if (proposal(); as proposed) { <p role="status">{{ proposed.autoCollated ? 'Automatically collated' : 'Membership proposal' }} · {{ proposed.businessReference }} · {{ proposed.reason }}</p> }
+  @for (record of records(); track record.id) {
+    <article>
+      <h4>{{ record.businessReference }} · {{ record.complete ? 'Complete' : 'Missing expected documents' }}</h4>
+      <p class="small">{{ record.customerId }} · {{ record.workflowId }} · revision {{ record.revision }} · {{ record.referenceVerified ? 'verified reference' : 'unverified reference' }} @if (record.testRun) { · TEST }</p>
+      <ul>@for (item of record.checklist; track item.documentType) { <li>{{ item.present ? 'Present' : 'Missing' }} · {{ item.documentType }} · {{ item.count }}</li> } @empty { <li>No expected document types configured.</li> }</ul>
+      <details><summary>Edit expected document types</summary>
+        @for (type of availableTypes(record); track type) { <label class="inline"><input type="checkbox" [checked]="checklistEdits[record.id]?.includes(type)" (change)="selectExpected(record, type, $any($event.target).checked)" />{{ type }}</label> }
+        <button type="button" (click)="saveChecklist(record)" [disabled]="busy()">Save checklist</button>
+      </details>
+      <button type="button" (click)="add(record)" [disabled]="busy() || !packet() || !selectedDocuments.length">Add selected documents to this case</button>
+      <details><summary>{{ record.members.length }} document memberships and source provenance</summary>
+        @for (member of record.members; track member.packetId + ':' + member.documentId) {
+          <div class="member"><p>{{ member.documentType }} · packet {{ member.packetId }} · source revision {{ member.packetRevision }} · added by {{ member.addedBy }}</p>
+            @for (source of member.sources; track source.sourceId) { <p class="small">{{ source.sourceName }} · {{ source.pageIds.length }} pages · source SHA-256 <code>{{ source.sha256 || 'not retained' }}</code></p> }
+            <button type="button" (click)="remove(record, member)" [disabled]="busy()">Remove membership</button>
+            <button type="button" (click)="refreshMember(record, member)" [disabled]="busy()">Refresh from current source revision</button>
+          </div>
+        }
+      </details>
+    </article>
+  } @empty { <p>No visible cases. Choose a submission with cases enabled to create one.</p> }
+</section>

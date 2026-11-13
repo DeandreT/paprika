@@ -1,0 +1,62 @@
+<section aria-label="Business references and connectors">
+  <h3>Business references and real connectors</h3>
+  <p>Reference matches are candidates until a reviewer verifies them. Real connector delivery sends approved files to a configured destination.</p>
+  @if (error()) { <p role="alert">{{error()}}</p> }
+  @if (notice()) { <p role="status">{{notice()}}</p> }
+  <button type="button" (click)="refresh()" [disabled]="busy()">Refresh</button>
+  <details>
+    <summary>Immutable local reference datasets</summary>
+    <form (ngSubmit)="createDataset()">
+      <label>Dataset ID <input name="datasetId" [(ngModel)]="datasetId" maxlength="80" required></label>
+      <label>Name <input name="datasetName" [(ngModel)]="datasetName" maxlength="200" required></label>
+      <label class="check"><input type="checkbox" name="synthetic" [(ngModel)]="synthetic"> Synthetic records (not live business data)</label>
+      <label>Entries JSON: reference, recordId, label <textarea name="entries" [(ngModel)]="entriesJson" rows="5" required></textarea></label>
+      <button type="submit" [disabled]="busy()">Create new dataset version</button>
+    </form>
+    @for (dataset of datasets(); track dataset.id + ':' + dataset.version) {
+      <article><strong>{{dataset.name}}</strong> · {{dataset.id}} v{{dataset.version}} · {{dataset.synthetic ? 'SYNTHETIC' : 'Business dataset'}} · {{dataset.entries.length}} records <code>{{dataset.hash}}</code></article>
+    } @empty { <p>No reference datasets configured.</p> }
+  </details>
+  @if (packetId()) {
+    <h4>Current revision {{revision()}} reference checks</h4>
+    <button type="button" (click)="lookup()" [disabled]="busy()">Lookup current document references</button>
+    @for (result of results(); track result.documentId) {
+      <article><strong>{{result.reference || '(no reference)'}}</strong> · {{result.status}} @if(result.synthetic) { <strong> SYNTHETIC</strong> }
+        <p>Document {{result.documentId}} · {{result.provenance}}</p><code>{{result.datasetHash}}</code>
+        @if(result.candidateReferences?.length) { <p>Extracted candidates: {{result.candidateReferences.join(', ')}}</p> }
+        @for (match of result.matches; track $index) {
+          <p>{{match.recordId}} — {{match.label}} <button type="button" (click)="verify(result,match.recordId)" [disabled]="busy() || result.status==='verified'">Verify this match</button></p>
+        }
+      </article>
+    } @empty { <p>No reference checks for this revision. The selected workflow must have a pinned reference policy.</p> }
+  }
+  <details>
+    <summary>Configured connectors</summary>
+    <p>Roots, URLs and credentials are configured only on the server. No downstream-specific contract is assumed.</p>
+    <label>Import workflow ID (blank uses routing) <input [(ngModel)]="workflowId"></label>
+    <label>Import published version <input type="number" min="1" [(ngModel)]="workflowVersion"></label>
+    <label class="check"><input type="checkbox" [(ngModel)]="testRun"> Import as test run</label>
+    @for(connector of connectors();track connector.id) {
+      <article><strong>{{connector.id}}</strong> · {{connector.kind}}
+        @if(connector.kind==='folderIntake') { <button type="button" (click)="scan(connector)" [disabled]="busy()">Scan and import approved folder</button> }
+        @if(connector.kind==='folderExport' || connector.kind==='httpDelivery') { <button type="button" (click)="deliver(connector)" [disabled]="busy() || !packetId()">Queue real delivery of current approved revision</button> }
+      </article>
+    } @empty { <p>No connectors configured.</p> }
+    @for(item of imports();track $index) { <p>{{item.name}} · {{item.status}} · {{item.packetId}}</p> }
+  </details>
+  <h4>Actual delivery ledger</h4>
+  @for(delivery of deliveries();track delivery.id) {
+    <article><strong>{{delivery.connectorId}}</strong> · Revision {{delivery.revision}} · {{delivery.status}} · {{delivery.attempts}} attempts
+      <p>Transport ACK: {{delivery.transportAcknowledged ? 'yes' : 'no'}} · Business receipt: {{delivery.businessStatus}} {{delivery.receiptId}}</p>
+      <code>{{delivery.contentHash}}</code>
+      @if(delivery.error) { <p>{{delivery.error}}</p> }
+      @if(delivery.status==='failed') { <button type="button" (click)="retry(delivery)" [disabled]="busy()">Retry same content and idempotency key</button> }
+      @if(delivery.transportAcknowledged && delivery.businessStatus==='pending') {
+        <p>Only record acceptance or rejection after receiving an independent business receipt.</p>
+        <label>Business receipt ID <input [(ngModel)]="receiptIds[delivery.id]" maxlength="200"></label>
+        <label>Business result <select [(ngModel)]="receiptStatuses[delivery.id]"><option value="accepted">Accepted</option><option value="rejected">Rejected</option></select></label>
+        <button type="button" (click)="receipt(delivery)" [disabled]="busy() || !receiptIds[delivery.id]">Record business receipt</button>
+      }
+    </article>
+  } @empty { <p>No actual connector deliveries.</p> }
+</section>
