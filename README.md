@@ -2,8 +2,6 @@
 
 Local-first document-processing platform with versioned classification workflows. Upload a mixed packet, classify and extract documents, verify references, review corrections, and export approved results with source-page and workflow provenance.
 
-Upgrading from PaperworkClassifier? See [rename and upgrade notes](docs/renaming.md) for configuration changes, existing data, request headers and sign-in.
-
 ## Run offline
 
 Prerequisites: **.NET 10 SDK**, **Node.js 22.22.3+ in the 22.x line** (22.23.4 used here), npm, and PowerShell 7. The frontend uses Angular 22.
