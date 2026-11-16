@@ -1,6 +1,6 @@
 using System.Net;
 
-namespace PaperworkClassifier;
+namespace paprika;
 
 public sealed class HostingPolicy
 {
@@ -12,12 +12,12 @@ public sealed class HostingPolicy
     public HostingPolicy(IConfiguration config)
     {
         shared = string.Equals(
-            config["Paperwork:Operations:Mode"],
+            config["paprika:Operations:Mode"],
             "shared",
             StringComparison.OrdinalIgnoreCase
         );
         ListenUrl = shared
-            ? config["Paperwork:Hosting:Url"] ?? "http://127.0.0.1:5080"
+            ? config["paprika:Hosting:Url"] ?? "http://127.0.0.1:5080"
             : "http://127.0.0.1:5080";
         if (
             !Uri.TryCreate(ListenUrl, UriKind.Absolute, out var listen)
@@ -40,7 +40,7 @@ public sealed class HostingPolicy
         origins = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         if (shared)
         {
-            foreach (var entry in config.GetSection("Paperwork:Hosting:AllowedHosts").GetChildren())
+            foreach (var entry in config.GetSection("paprika:Hosting:AllowedHosts").GetChildren())
             {
                 var host = entry.Value;
                 if (
@@ -56,9 +56,7 @@ public sealed class HostingPolicy
             }
             if (listen.Host is not ("0.0.0.0" or "[::]" or "::"))
                 hosts.Add(listen.Host);
-            foreach (
-                var entry in config.GetSection("Paperwork:Hosting:AllowedOrigins").GetChildren()
-            )
+            foreach (var entry in config.GetSection("paprika:Hosting:AllowedOrigins").GetChildren())
             {
                 if (
                     !Uri.TryCreate(entry.Value, UriKind.Absolute, out var origin)

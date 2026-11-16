@@ -1,4 +1,4 @@
-namespace PaperworkClassifier;
+namespace paprika;
 
 public sealed class PlatformPipeline(
     Store store,

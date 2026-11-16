@@ -20,7 +20,7 @@ interface FlowRun { packetId: string; snapshotHash: string; definitionHash: stri
 })
 export class FlowPanelComponent {
   private http = inject(HttpClient);
-  private headers = new HttpHeaders({ "X-PaperworkClassifier": "1" });
+  private headers = new HttpHeaders({ "X-paprika": "1" });
   private generation = 0;
   packetId = input(""); revision = input(0); refreshed = output<void>();
   run = signal<FlowRun | null>(null); library = signal<FlowLibraryEntry[]>([]);

@@ -3,7 +3,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 
-namespace PaperworkClassifier.Tests;
+namespace paprika.Tests;
 
 internal static class MessagingTestHost
 {
@@ -16,7 +16,7 @@ internal static class MessagingTestHost
         new HostBuilder()
             .ConfigureAppConfiguration(c =>
                 c.AddInMemoryCollection(
-                    new Dictionary<string, string?> { ["Paperwork:DataDirectory"] = store.Root }
+                    new Dictionary<string, string?> { ["paprika:DataDirectory"] = store.Root }
                 )
             )
             .UseDefaultServiceProvider(options =>

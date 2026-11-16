@@ -12,7 +12,7 @@ interface CaseProposal { businessReference: string; candidateCaseIds: string[]; 
 @Component({ selector: "app-case-panel", standalone: true, imports: [FormsModule], templateUrl: "./case-panel.html", styleUrl: "./case-panel.css" })
 export class CasePanelComponent {
   private http = inject(HttpClient);
-  private headers = new HttpHeaders({ "X-PaperworkClassifier": "1" });
+  private headers = new HttpHeaders({ "X-paprika": "1" });
   private generation = 0;
   packetId = input(""); revision = input(0); refreshed = output<void>();
   records = signal<CaseRecord[]>([]); packets = signal<CasePacket[]>([]); packet = signal<CasePacket | null>(null); proposal = signal<CaseProposal | null>(null);

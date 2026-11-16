@@ -4,16 +4,26 @@ param(
 )
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
+function Get-PackageRuntime([string]$runtimePackage) {
+    if (Test-Path -LiteralPath "$runtimePackage/paprika.Api.dll") {
+        return @{ Dll = 'paprika.Api.dll'; Configuration = 'paprika'; Header = 'X-paprika' }
+    }
+    # A previous release can seed the upgrade fixture with its original contract.
+    if (Test-Path -LiteralPath "$runtimePackage/PaperworkClassifier.Api.dll") {
+        return @{ Dll = 'PaperworkClassifier.Api.dll'; Configuration = 'Paperwork'; Header = 'X-PaperworkClassifier' }
+    }
+    throw "Package is missing the application: $runtimePackage"
+}
 $package = (Resolve-Path -LiteralPath $PackageDirectory).Path
-if (-not (Test-Path -LiteralPath "$package/PaperworkClassifier.Api.dll")) { throw 'Publish the application first.' }
+if (-not (Test-Path -LiteralPath "$package/paprika.Api.dll")) { throw 'Publish the application first.' }
 $seedPackage = if ($SeedPackageDirectory) { (Resolve-Path -LiteralPath $SeedPackageDirectory).Path } else { $package }
-if (-not (Test-Path -LiteralPath "$seedPackage/PaperworkClassifier.Api.dll")) { throw 'Seed package is missing the application.' }
+$null = Get-PackageRuntime $seedPackage
 if (Get-NetTCPConnection -LocalPort 5080 -State Listen -ErrorAction SilentlyContinue) { throw 'Recovery verification requires free port 5080; existing processes are never stopped.' }
-$root = Join-Path $env:LOCALAPPDATA ('Temp/opencode/paperwork-recovery-' + [Guid]::NewGuid().ToString('N'))
+$root = Join-Path $env:LOCALAPPDATA ('Temp/opencode/paprika-recovery-' + [Guid]::NewGuid().ToString('N'))
 $null = New-Item -ItemType Directory -Path $root
 $api = $null
 $base = 'http://127.0.0.1:5080'
-$headers = @{ 'X-PaperworkClassifier' = '1' }
+$headers = @{}
 function Stop-TestApi {
     if ($null -ne $script:api) {
         if (-not $script:api.HasExited) { $script:api.Kill($true); $script:api.WaitForExit() }
@@ -22,13 +32,18 @@ function Stop-TestApi {
     }
 }
 function Start-TestApi([string]$data, [string]$runtimePackage = $package) {
+    $runtime = Get-PackageRuntime $runtimePackage
+    $script:headers = @{}
+    $script:headers[$runtime.Header] = '1'
     $info = [Diagnostics.ProcessStartInfo]::new('dotnet')
     $info.UseShellExecute = $false
     $info.WorkingDirectory = $runtimePackage
-    foreach ($arg in @("$runtimePackage/PaperworkClassifier.Api.dll", '--contentRoot', $runtimePackage, '--Logging:LogLevel:Default=Error')) { $info.ArgumentList.Add($arg) }
-    $info.Environment['Paperwork__Mode'] = 'Simulation'
-    $info.Environment['Paperwork__DataDirectory'] = $data
-    foreach ($key in @('Paperwork__AzureKey', 'Paperwork__JevApiKey')) { $null = $info.Environment.Remove($key) }
+    foreach ($arg in @((Join-Path $runtimePackage $runtime.Dll), '--contentRoot', $runtimePackage, '--Logging:LogLevel:Default=Error')) { $info.ArgumentList.Add($arg) }
+    $info.Environment[($runtime.Configuration + '__Mode')] = 'Simulation'
+    $info.Environment[($runtime.Configuration + '__DataDirectory')] = $data
+    foreach ($prefix in @('paprika', 'Paperwork')) {
+        foreach ($name in @('AzureKey', 'JevApiKey')) { $null = $info.Environment.Remove($prefix + '__' + $name) }
+    }
     $script:api = [Diagnostics.Process]::Start($info)
     $deadline = [DateTimeOffset]::UtcNow.AddSeconds(30)
     while ([DateTimeOffset]::UtcNow -lt $deadline -and -not $script:api.HasExited) {

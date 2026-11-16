@@ -17,7 +17,7 @@ import { CapabilityEditorComponent } from "./capability-editor";
 export class WorkflowManagerComponent {
   store = inject(WorkflowStore);
   private http = inject(HttpClient);
-  private headers = new HttpHeaders({ "X-PaperworkClassifier": "1" });
+  private headers = new HttpHeaders({ "X-paprika": "1" });
   config = input<Config | null>(null);
   reviewBusy = input(false);
   reviewDirty = input(false);

@@ -13,7 +13,7 @@ interface Imported { name: string; status: string; packetId: string | null; }
 @Component({ selector: 'app-reference-panel', standalone: true, imports: [FormsModule], templateUrl: './reference-panel.html', styleUrl: './reference-panel.css' })
 export class ReferencePanelComponent {
   packetId = input(''); revision = input(0); refreshed = output<void>();
-  private http = inject(HttpClient); private headers = new HttpHeaders({ 'X-PaperworkClassifier': '1' });
+  private http = inject(HttpClient); private headers = new HttpHeaders({ 'X-paprika': '1' });
   datasets = signal<Dataset[]>([]); results = signal<ReferenceResult[]>([]); connectors = signal<Connector[]>([]); deliveries = signal<Delivery[]>([]); imports = signal<Imported[]>([]);
   busy = signal(false); error = signal(''); notice = signal('');
   datasetId = ''; datasetName = ''; synthetic = true; entriesJson = '[{"reference":"SYNTHETIC-100","recordId":"example-1","label":"Synthetic example"}]';

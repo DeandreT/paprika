@@ -8,11 +8,11 @@ using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
-using PaperworkClassifier;
+using paprika;
 using PdfSharp.Pdf.IO;
 using Xunit;
 
-namespace PaperworkClassifier.Tests;
+namespace paprika.Tests;
 
 public sealed class UploadWorkflowTests
 {
@@ -75,7 +75,7 @@ public sealed class UploadWorkflowTests
         var pdf = await File.ReadAllBytesAsync(pdfPath, ct);
         app.Transport.ExpectedSources = [pdf, Png];
         using var client = app.CreateClient();
-        client.DefaultRequestHeaders.Add("X-PaperworkClassifier", "1");
+        client.DefaultRequestHeaders.Add("X-paprika", "1");
         client.DefaultRequestHeaders.Add("Origin", "http://localhost:4200");
 
         using var configResponse = await client.GetAsync("/api/config", ct);
@@ -249,7 +249,7 @@ public sealed class UploadWorkflowTests
         using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(15));
         await using var app = new LiveFactory();
         using var client = app.CreateClient();
-        client.DefaultRequestHeaders.Add("X-PaperworkClassifier", "1");
+        client.DefaultRequestHeaders.Add("X-paprika", "1");
         // A valid first source followed by a broken one also exercises partial-upload cleanup.
         using var multipart = Multipart(
             ("valid.png", Png),
@@ -275,7 +275,7 @@ public sealed class UploadWorkflowTests
         await using var app = new LiveFactory();
         using var client = app.CreateClient();
         if (marker)
-            client.DefaultRequestHeaders.Add("X-PaperworkClassifier", "1");
+            client.DefaultRequestHeaders.Add("X-paprika", "1");
         if (origin is not null)
             client.DefaultRequestHeaders.Add("Origin", origin);
         using var multipart = Multipart(("slip.png", Png));
@@ -345,12 +345,12 @@ public sealed class UploadWorkflowTests
         Dictionary<string, string?> Values =>
             new()
             {
-                ["Paperwork:DataDirectory"] = Root,
-                ["Paperwork:Mode"] = "Live",
-                ["Paperwork:AzureEndpoint"] = "https://ocr.example.test",
-                ["Paperwork:AzureKey"] = AzureKey,
-                ["Paperwork:JevApiKey"] = JevKey,
-                ["Paperwork:JevModel"] = "integration-request-model",
+                ["paprika:DataDirectory"] = Root,
+                ["paprika:Mode"] = "Live",
+                ["paprika:AzureEndpoint"] = "https://ocr.example.test",
+                ["paprika:AzureKey"] = AzureKey,
+                ["paprika:JevApiKey"] = JevKey,
+                ["paprika:JevModel"] = "integration-request-model",
             };
 
         public LiveFactory() => Directory.CreateDirectory(Root);

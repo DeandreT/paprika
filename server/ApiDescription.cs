@@ -1,6 +1,6 @@
 using Microsoft.OpenApi;
 
-namespace PaperworkClassifier;
+namespace paprika;
 
 // Explicit public contracts keep persistence/provider details out of the API schema.
 public sealed record ApiError(string Error);
@@ -87,10 +87,10 @@ public static class ApiDescription
                 {
                     document.Info = new OpenApiInfo
                     {
-                        Title = "PaperworkClassifier API",
+                        Title = "paprika API",
                         Version = "v1",
                         Description =
-                            "Document-processing platform. Processing is asynchronous: poll packets until review, approved or failed. Default local simulation uses embedded PDF text and uncalibrated rules with manual approval. Optional immutable capabilities add learned classification, quality sampling, extraction, reference verification, cases and approval-aware flows. Shared mode authenticates configured identities and enforces workflow permissions. X-PaperworkClassifier is an anti-cross-origin request marker, not authentication. Synthetic evaluations are not live-provider accuracy or downstream acceptance.",
+                            "Document-processing platform. Processing is asynchronous: poll packets until review, approved or failed. Default local simulation uses embedded PDF text and uncalibrated rules with manual approval. Optional immutable capabilities add learned classification, quality sampling, extraction, reference verification, cases and approval-aware flows. Shared mode authenticates configured identities and enforces workflow permissions. X-paprika is an anti-cross-origin request marker, not authentication. Synthetic evaluations are not live-provider accuracy or downstream acceptance.",
                     };
                     return Task.CompletedTask;
                 }
@@ -142,7 +142,7 @@ public static class ApiDescription
                         operation.Parameters.Add(
                             new OpenApiParameter
                             {
-                                Name = "X-PaperworkClassifier",
+                                Name = "X-paprika",
                                 In = ParameterLocation.Header,
                                 Required = true,
                                 Description =

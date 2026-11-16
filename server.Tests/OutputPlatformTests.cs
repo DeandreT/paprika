@@ -1,10 +1,10 @@
 using System.Text;
-using PaperworkClassifier;
+using paprika;
 using SkiaSharp;
 using UglyToad.PdfPig;
 using Xunit;
 
-namespace PaperworkClassifier.Tests;
+namespace paprika.Tests;
 
 public sealed class OutputPlatformTests
 {

@@ -1,6 +1,6 @@
 using Microsoft.AspNetCore.Http.HttpResults;
 
-namespace PaperworkClassifier;
+namespace paprika;
 
 public static class ReferenceEndpoints
 {

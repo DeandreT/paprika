@@ -1,8 +1,8 @@
 using Microsoft.Data.Sqlite;
-using PaperworkClassifier;
+using paprika;
 using Xunit;
 
-namespace PaperworkClassifier.Tests;
+namespace paprika.Tests;
 
 public sealed class CaseFlowRetentionTests
 {

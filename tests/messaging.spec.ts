@@ -1,7 +1,7 @@
 import { test, expect } from '@playwright/test';
 import { menuAction } from './navigation';
 
-const headers = { 'X-PaperworkClassifier': '1' };
+const headers = { 'X-paprika': '1' };
 
 test('business rejection stays terminal instead of becoming a retryable dead letter', async ({ request }) => {
   const created = await (await request.post('/api/packets/demo', { headers })).json();

@@ -5,7 +5,7 @@ using Microsoft.Data.Sqlite;
 using Microsoft.Extensions.Configuration;
 using Xunit;
 
-namespace PaperworkClassifier.Tests;
+namespace paprika.Tests;
 
 public sealed class WorkflowExecutionTests : IDisposable
 {
@@ -20,11 +20,11 @@ public sealed class WorkflowExecutionTests : IDisposable
             .AddInMemoryCollection(
                 new Dictionary<string, string?>
                 {
-                    ["Paperwork:DataDirectory"] = root,
-                    ["Paperwork:AzureEndpoint"] = "https://ocr.example.test",
-                    ["Paperwork:AzureKey"] = "test",
-                    ["Paperwork:JevApiKey"] = "test",
-                    ["Paperwork:JevModel"] = "approved-model",
+                    ["paprika:DataDirectory"] = root,
+                    ["paprika:AzureEndpoint"] = "https://ocr.example.test",
+                    ["paprika:AzureKey"] = "test",
+                    ["paprika:JevApiKey"] = "test",
+                    ["paprika:JevModel"] = "approved-model",
                 }
             )
             .Build();
@@ -193,7 +193,7 @@ public sealed class WorkflowExecutionTests : IDisposable
         store.Workflows.Archive("workflow", entry.Id, 1, entry.Revision);
         var noCredentials = new ConfigurationBuilder()
             .AddInMemoryCollection(
-                new Dictionary<string, string?> { ["Paperwork:DataDirectory"] = root }
+                new Dictionary<string, string?> { ["paprika:DataDirectory"] = root }
             )
             .Build();
         var fresh = new Store(noCredentials);

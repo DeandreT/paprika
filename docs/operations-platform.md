@@ -12,13 +12,13 @@ app.UseOperationsPlatform();
 api.MapOperationsPlatform(); // api is the /api RouteGroupBuilder
 ```
 
-Place the operations middleware after routing and the application's host/origin/request-header safety middleware, before API handlers. Program wires these hooks. All writes retain the `X-PaperworkClassifier: 1` requirement.
+Place the operations middleware after routing and the application's host/origin/request-header safety middleware, before API handlers. Program wires these hooks. All writes require `X-paprika: 1` (the legacy marker remains accepted; see [rename notes](renaming.md)).
 
 Shared configuration uses the standard ASP.NET configuration hierarchy. A non-secret example:
 
 ```json
 {
-  "Paperwork": {
+  "paprika": {
     "Operations": {
       "Mode": "shared",
       "UseAspNetIdentity": true,
@@ -31,9 +31,9 @@ Shared configuration uses the standard ASP.NET configuration hierarchy. A non-se
       "Retention": { "MinimumAgeDays": 90, "ExecutionEnabled": false, "PermanentDeletionEnabled": false }
     },
     "Hosting": {
-      "Url": "https://paperwork.example.test:5080",
-      "AllowedHosts": ["paperwork.example.test"],
-      "AllowedOrigins": ["https://paperwork.example.test:5080"]
+      "Url": "https://paprika.example.test:5080",
+      "AllowedHosts": ["paprika.example.test"],
+      "AllowedOrigins": ["https://paprika.example.test:5080"]
     }
   }
 }
@@ -41,7 +41,7 @@ Shared configuration uses the standard ASP.NET configuration hierarchy. A non-se
 
 The shared hosting policy permits an explicitly configured listen URL and exact allowed hosts/origins. It does not enable wildcard hosts or origins. Local mode retains its original loopback and localhost origin defaults. Configure HTTPS and the deployment's authentication scheme/certificate or TLS reverse proxy before exposing shared mode. Forwarded headers and any organization identity challenge/sign-out integration belong to the trusted hosting configuration; caller-supplied identity headers are not accepted as authentication.
 
-Alternatively, configure a per-user `Paperwork:Operations:Users:<index>:Token` through the approved secret/environment provider. Tokens must be at least 32 characters. Do not put reusable tokens in source, JSON examples, URLs, browser storage or logs. `UseAspNetIdentity` can be false for this mode. There is no API to read or update credentials. A matching authenticated ASP.NET identity or a configured bearer credential is required; an unknown name, missing configuration or caller-supplied roles cannot grant access. Duplicate allowlisted names fail closed.
+Alternatively, configure a per-user `paprika:Operations:Users:<index>:Token` through the approved secret/environment provider. Tokens must be at least 32 characters. Do not put reusable tokens in source, JSON examples, URLs, browser storage or logs. `UseAspNetIdentity` can be false for this mode. There is no API to read or update credentials. A matching authenticated ASP.NET identity or a configured bearer credential is required; an unknown name, missing configuration or caller-supplied roles cannot grant access. Duplicate allowlisted names fail closed.
 
 The panel exchanges a bearer credential using `POST /session`. The server returns only the resolved identity and creates an eight-hour protected, HTTP-only, Strict SameSite cookie, secure on HTTPS. The panel immediately clears the token input; it does not retain tokens in local/session storage. The current allowlist is consulted on every request, including cookie sessions. `DELETE /session` clears the browser cookie; ASP.NET SSO sign-out still belongs to the configured identity provider. Removing an account revokes its access. Browser sign-out is not global revocation of an independently copied session ticket.
 

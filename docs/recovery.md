@@ -7,16 +7,18 @@ Keep runtime data and backups on local, access-controlled storage outside OneDri
 ## Back up
 
 ```powershell
-./scripts/backup.ps1 -DataDirectory "$env:LOCALAPPDATA/PaperworkClassifier" -OutputDirectory "$env:LOCALAPPDATA/Backups/paperwork-2026-11-12"
+./scripts/backup.ps1 -OutputDirectory "$env:LOCALAPPDATA/Backups/paprika-before-upgrade"
 ```
 
 Choose a new destination outside the source directory. The complete data tree is copied, including `jobs.sqlite`, any SQLite WAL/SHM files left by the stopped application, source files and `deliveries` (outbox database and ZIP artifacts). Every file receives a length and SHA-256 entry in `manifest.json`. A staging directory is published only after copying completes.
 
+Without `-DataDirectory`, backup uses `paprika__DataDirectory` when set, otherwise the same new/legacy default selection as the application. For a data root selected through another configuration provider, pass its actual path explicitly. See [rename notes](renaming.md#existing-data). The manifest format remains `paperwork-backup-1` so existing backups remain readable.
+
 ## Restore to a new directory
 
 ```powershell
-./scripts/restore.ps1 -BackupDirectory "$env:LOCALAPPDATA/Backups/paperwork-2026-11-12" -DataDirectory "$env:LOCALAPPDATA/PaperworkClassifier-recovered"
-$env:Paperwork__DataDirectory = "$env:LOCALAPPDATA/PaperworkClassifier-recovered"
+./scripts/restore.ps1 -BackupDirectory "$env:LOCALAPPDATA/Backups/paprika-before-upgrade" -DataDirectory "$env:LOCALAPPDATA/paprika-recovered"
+$env:paprika__DataDirectory = "$env:LOCALAPPDATA/paprika-recovered"
 # Start the published application with this environment variable.
 ```
 
@@ -36,9 +38,9 @@ The check creates a unique temporary tree under `%LOCALAPPDATA%/Temp/opencode`, 
 
 The check also starts a new processing run from the restored originals, approves it and completes a new simulated delivery, verifying that recovery supports new work as well as archived reads. The approved parent's history must remain unchanged.
 
-For upgrade compatibility, pass `-SeedPackageDirectory ./artifacts/publish-workflows` along with the new `-PackageDirectory`. The previous release creates the synthetic source data; the new release opens the restored copy and executes the fresh work. The original release folder and any regular application data remain untouched.
+For upgrade compatibility, pass `-SeedPackageDirectory ./artifacts/publish-workflows` along with the new `-PackageDirectory`. The previous release creates the synthetic source data; the new release opens the restored copy and executes the fresh work. The check chooses each package's DLL, configuration prefix and request marker independently, so a legacy seed package still uses its original contract. The original release folder and any regular application data remain untouched.
 
-The durable release also supplies `scripts/durability-check.ps1 -PackageDirectory ./artifacts/publish-durable` (Python 3 required). It queues a repeated transient delivery failure and force-stops its own process. A read-only SQLite probe then requires a non-handled envelope for that delivery's current generation and no matching dead letter, and records the actual stopped attempt count. This prevents a completed failure racing with shutdown from falsely passing as recovered pending work. The check backs up/restores the stopped data, deletes the old root, and requires additional attempts before exhaustion. It also verifies dead-letter persistence across another restart, operator replay, and unchanged approved history. It never fabricates Wolverine queue rows. Every process and data directory is allocated for that check and cleaned in `finally`.
+Run `scripts/durability-check.ps1 -PackageDirectory ./artifacts/publish-platform` against the current paprika package (Python 3 required). It queues a repeated transient delivery failure and force-stops its own process. A read-only SQLite probe then requires a non-handled envelope for that delivery's current generation and no matching dead letter, and records the actual stopped attempt count. This prevents a completed failure racing with shutdown from falsely passing as recovered pending work. The check backs up/restores the stopped data, deletes the old root, and requires additional attempts before exhaustion. It also verifies dead-letter persistence across another restart, operator replay, and unchanged approved history. It never fabricates Wolverine queue rows. Every process and data directory is allocated for that check and cleaned in `finally`.
 
 The full backup must include active Wolverine inbox/outbox, scheduled retry and dead-letter state. Legacy `deliveries/outbox.sqlite` may remain after migration as preserved historical data; the new runtime's consolidated database is authoritative. Do not restore just the legacy outbox into an upgraded directory or run an old binary on upgraded data. For rollback, restore a complete pre-upgrade backup into a fresh directory.
 

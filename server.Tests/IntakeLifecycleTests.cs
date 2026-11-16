@@ -9,7 +9,7 @@ using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Hosting;
 using Xunit;
 
-namespace PaperworkClassifier.Tests;
+namespace paprika.Tests;
 
 public sealed class IntakeLifecycleTests : IDisposable
 {
@@ -25,11 +25,11 @@ public sealed class IntakeLifecycleTests : IDisposable
             .AddInMemoryCollection(
                 new Dictionary<string, string?>
                 {
-                    ["Paperwork:DataDirectory"] = root,
-                    ["Paperwork:Mode"] = mode,
-                    ["Paperwork:AzureEndpoint"] = "https://ocr.example.test",
-                    ["Paperwork:AzureKey"] = "test",
-                    ["Paperwork:JevApiKey"] = "test",
+                    ["paprika:DataDirectory"] = root,
+                    ["paprika:Mode"] = mode,
+                    ["paprika:AzureEndpoint"] = "https://ocr.example.test",
+                    ["paprika:AzureKey"] = "test",
+                    ["paprika:JevApiKey"] = "test",
                 }
             )
             .Build();
@@ -265,7 +265,7 @@ public sealed class IntakeLifecycleTests : IDisposable
     {
         using var factory = new Factory(root);
         using var client = factory.CreateClient();
-        client.DefaultRequestHeaders.Add("X-PaperworkClassifier", "1");
+        client.DefaultRequestHeaders.Add("X-paprika", "1");
         var fixture = Path.Combine(root, "fixture.pdf");
         Directory.CreateDirectory(root);
         Pdfs.Synthetic(fixture, ["BOL: TEST-1"]);
@@ -307,7 +307,7 @@ public sealed class IntakeLifecycleTests : IDisposable
         Assert.Equal(p.Id, next.ParentPacketId);
         Assert.Equal(2, next.RunNumber);
         Assert.Empty(next.IdentifierCandidates);
-        client.DefaultRequestHeaders.Remove("X-PaperworkClassifier");
+        client.DefaultRequestHeaders.Remove("X-paprika");
         using var forbidden = await client.PostAsJsonAsync(
             $"/api/packets/{next.Id}/cancel",
             new { revision = 1 }
@@ -323,7 +323,7 @@ public sealed class IntakeLifecycleTests : IDisposable
         p.Status = "failed";
         store.Save(p);
         var missingCredentials = new ConfigurationBuilder()
-            .AddInMemoryCollection(new Dictionary<string, string?> { ["Paperwork:Mode"] = "live" })
+            .AddInMemoryCollection(new Dictionary<string, string?> { ["paprika:Mode"] = "live" })
             .Build();
         Assert.Equal(200, store.Reprocess(p.Id, p.Revision, new Settings(missingCredentials)).Code);
         Assert.Equal(2, store.All().Count);
@@ -355,7 +355,7 @@ public sealed class IntakeLifecycleTests : IDisposable
             var operation = paths.GetProperty($"/api/packets/{{id}}/{route}").GetProperty("post");
             Assert.True(operation.GetProperty("responses").TryGetProperty("409", out _));
             Assert.Contains(operation.GetProperty("parameters").EnumerateArray(), p =>
-                p.GetProperty("name").GetString() == "X-PaperworkClassifier"
+                p.GetProperty("name").GetString() == "X-paprika"
                 && p.GetProperty("required").GetBoolean()
             );
         }
@@ -377,11 +377,11 @@ public sealed class IntakeLifecycleTests : IDisposable
                     config.AddInMemoryCollection(
                         new Dictionary<string, string?>
                         {
-                            ["Paperwork:DataDirectory"] = data,
-                            ["Paperwork:Mode"] = "live",
-                            ["Paperwork:AzureEndpoint"] = "https://ocr.example.test",
-                            ["Paperwork:AzureKey"] = "test",
-                            ["Paperwork:JevApiKey"] = "test",
+                            ["paprika:DataDirectory"] = data,
+                            ["paprika:Mode"] = "live",
+                            ["paprika:AzureEndpoint"] = "https://ocr.example.test",
+                            ["paprika:AzureKey"] = "test",
+                            ["paprika:JevApiKey"] = "test",
                         }
                     )
             );

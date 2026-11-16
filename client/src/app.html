@@ -3,7 +3,7 @@
   <button mat-button data-testid="app-menu-toggle" [matMenuTriggerFor]="applicationMenu" aria-label="Open application menu">☰ <span>Menu</span></button>
 </div>
 <mat-menu #applicationMenu="matMenu" class="application-menu" xPosition="before">
-  <div class="menu-brand">PaperworkClassifier</div>
+  <div class="menu-brand">paprika</div>
   <button mat-menu-item data-testid="classification-guided" (click)="showClassification(false)" [disabled]="busy()" [attr.aria-current]="!managerOpen() && !classificationAdvanced() ? 'page' : null">Guided review</button>
   <button mat-menu-item data-testid="classification-advanced" (click)="showClassification(true)" [disabled]="busy()" [attr.aria-current]="!managerOpen() && classificationAdvanced() ? 'page' : null">Advanced workspace</button>
   <button mat-menu-item data-testid="workflow-manager-toggle" (click)="managerOpen.set(!managerOpen())" [disabled]="busy()" [attr.aria-expanded]="managerOpen()" aria-controls="workflow-manager">{{ managerOpen() ? 'Close workflow management' : 'Manage workflows' }}</button>

@@ -8,10 +8,13 @@ using Wolverine.Runtime;
 using Wolverine.Runtime.Serialization;
 using Wolverine.Sqlite;
 
-namespace PaperworkClassifier;
+namespace paprika;
 
+// These persisted identities predate the rename and must remain readable after an upgrade.
+[Wolverine.Attributes.MessageIdentity("PaperworkClassifier.ProcessPacket")]
 public sealed record ProcessPacket(string PacketId, string? WorkId = null);
 
+[Wolverine.Attributes.MessageIdentity("PaperworkClassifier.ProcessDelivery")]
 public sealed record ProcessDelivery(string DeliveryId, string? WorkId = null);
 
 public sealed class TransientWorkException()
@@ -478,12 +481,7 @@ public static class Messaging
     }
 
     internal static string DataRoot(IConfiguration configuration) =>
-        configuration["Paperwork:DataDirectory"]
-        ?? configuration["DataDirectory"]
-        ?? Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-            "PaperworkClassifier"
-        );
+        AppPaths.DataRoot(configuration);
 
     public sealed class LocalConnection(IConfiguration configuration) : IWolverineExtension
     {
@@ -491,11 +489,10 @@ public static class Messaging
         {
             var root = DataRoot(configuration);
             Directory.CreateDirectory(root);
-            configuration["ConnectionStrings:PaperworkDurability"] =
-                new SqliteConnectionStringBuilder
-                {
-                    DataSource = Path.Combine(root, "jobs.sqlite"),
-                }.ToString();
+            configuration["ConnectionStrings:paprikaDurability"] = new SqliteConnectionStringBuilder
+            {
+                DataSource = Path.Combine(root, "jobs.sqlite"),
+            }.ToString();
         }
     }
 
@@ -551,7 +548,7 @@ public static class Messaging
             options.Durability.Mode = DurabilityMode.Solo;
             options.Durability.ScheduledJobPollingTime = TimeSpan.FromMilliseconds(250);
             options
-                .PersistMessagesWithSqliteUsingNamedConnection("PaperworkDurability")
+                .PersistMessagesWithSqliteUsingNamedConnection("paprikaDurability")
                 .OverrideAutoCreateResources(AutoCreate.CreateOrUpdate);
             options.AutoBuildMessageStorageOnStartup = AutoCreate.CreateOrUpdate;
             options

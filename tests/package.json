@@ -1,5 +1,5 @@
 {
-  "name": "paperwork-classifier-smoke-tests",
+  "name": "paprika-smoke-tests",
   "private": true,
   "scripts": {
     "test": "playwright test"

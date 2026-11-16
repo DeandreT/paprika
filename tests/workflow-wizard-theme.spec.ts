@@ -84,7 +84,7 @@ test('theme follows the system until chosen, persists across reload and keeps gu
   await menuAction(page, 'theme-toggle');
   await page.reload();
   await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
-  expect(await page.evaluate(() => localStorage.getItem('paperwork-theme'))).toBe('dark');
+  expect(await page.evaluate(() => localStorage.getItem('paprika-theme'))).toBe('dark');
   await menuAction(page, 'workflow-manager-toggle');
   await page.getByRole('button', { name: 'New workflow', exact: true }).click();
   await page.getByTestId('catalog-name').fill('Synthetic theme preview');

@@ -1,6 +1,6 @@
 using System.Text.RegularExpressions;
 
-namespace PaperworkClassifier;
+namespace paprika;
 
 // Automatic grouping is always source-local. Business references are independently reviewed.
 public static class WorkflowAssembly

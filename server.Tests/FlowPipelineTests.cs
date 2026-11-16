@@ -1,8 +1,8 @@
 using System.Text.Json;
-using PaperworkClassifier;
+using paprika;
 using Xunit;
 
-namespace PaperworkClassifier.Tests;
+namespace paprika.Tests;
 
 public sealed class FlowPipelineTests
 {

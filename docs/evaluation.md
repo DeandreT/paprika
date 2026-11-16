@@ -1,4 +1,4 @@
-# Evaluating PaperworkClassifier
+# Evaluating paprika
 
 The synthetic demo verifies the workflow. Offline Simulation mode can exercise uploaded PDFs/images without provider access; its local text/rule results are not Jev or Azure OCR results. Neither mode measures provider accuracy. Keep simulation results separate from later live-provider evaluations.
 

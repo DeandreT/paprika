@@ -1,6 +1,6 @@
 using System.Net;
 using Microsoft.AspNetCore.Http.Features;
-using PaperworkClassifier;
+using paprika;
 
 var builder = WebApplication.CreateBuilder(args);
 builder.Host.UsePacketMessaging();
@@ -51,13 +51,12 @@ app.Use(
         }
         if (
             context.Request.Method is not ("GET" or "HEAD" or "OPTIONS")
+            && context.Request.Headers["X-paprika"] != "1"
             && context.Request.Headers["X-PaperworkClassifier"] != "1"
         )
         {
             context.Response.StatusCode = 403;
-            await context.Response.WriteAsJsonAsync(
-                new { error = "X-PaperworkClassifier: 1 is required." }
-            );
+            await context.Response.WriteAsJsonAsync(new { error = "X-paprika: 1 is required." });
             return;
         }
         try
@@ -95,7 +94,7 @@ app.UseDefaultFiles();
 app.UseStaticFiles();
 app.MapOpenApi();
 var api = app.MapGroup("/api")
-    .WithTags("PaperworkClassifier")
+    .WithTags("paprika")
     .WithMetadata(
         new Microsoft.AspNetCore.Mvc.ProducesResponseTypeAttribute(typeof(ApiError), 403),
         new Microsoft.AspNetCore.Mvc.ProducesResponseTypeAttribute(typeof(ApiError), 500)

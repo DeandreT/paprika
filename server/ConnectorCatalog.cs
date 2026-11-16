@@ -1,7 +1,7 @@
 using System.Net.Http.Headers;
 using System.Text.Json;
 
-namespace PaperworkClassifier;
+namespace paprika;
 
 public sealed record ConnectorInfo(
     string Id,
@@ -16,15 +16,17 @@ public sealed class ConnectorCatalog(IConfiguration configuration)
     {
         if (!System.Text.RegularExpressions.Regex.IsMatch(id, "^[a-zA-Z0-9_-]{1,80}$"))
             throw new InvalidDataException("Invalid connector ID.");
-        var section = configuration.GetSection("Paperwork:Connectors").GetSection(id);
+        var section = configuration.GetSection("paprika:Connectors").GetSection(id);
         if (!section.Exists())
             throw new InvalidDataException("Connector is not configured.");
+        if (section["Protocol"] is not null)
+            throw new InvalidDataException("Custom connector protocols are not supported.");
         return section;
     }
 
     public ConnectorInfo[] All() =>
         configuration
-            .GetSection("Paperwork:Connectors")
+            .GetSection("paprika:Connectors")
             .GetChildren()
             .Select(s => new ConnectorInfo(
                 s.Key,

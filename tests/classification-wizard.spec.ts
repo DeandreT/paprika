@@ -3,7 +3,7 @@ import { randomUUID, createHash } from 'node:crypto';
 import { textPdf } from './fixtures';
 import { menuAction } from './navigation';
 
-const headers = { 'X-PaperworkClassifier': '1' };
+const headers = { 'X-paprika': '1' };
 const fixture = () => textPdf([
   'BILL OF LADING\nOrder: SYNTHETIC-1001\nPage 1 of 2',
   'BILL OF LADING\nOrder: SYNTHETIC-1001\nPage 2 of 2 - continuation',

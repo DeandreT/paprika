@@ -14,7 +14,7 @@ interface Artifact { id: string; format: string; sha256: string }
 @Component({ selector: 'app-extraction-panel', standalone: true, imports: [FormsModule, JsonPipe], templateUrl: './extraction-panel.html', styleUrl: './extraction-panel.css' })
 export class ExtractionPanelComponent implements OnChanges {
   @Input() packetId = ''; @Input() revision = 0; @Output() refreshed = new EventEmitter<void>();
-  private http = inject(HttpClient); private headers = { 'X-PaperworkClassifier': '1' }; private opened = false;
+  private http = inject(HttpClient); private headers = { 'X-paprika': '1' }; private opened = false;
   busy = signal(false); error = signal(''); notice = signal(''); definitions = signal<Definition[]>([]); templates = signal<Template[]>([]); runs = signal<Run[]>([]); packet = signal<Packet | null>(null); outputs = signal<Artifact[]>([]); history = signal<unknown>(null); recognition = signal<unknown>(null); derivatives = signal<unknown>(null);
   definitionJson = JSON.stringify({ id: 'invoice-fields', version: 1, documentType: 'invoice', fields: [{ name: 'invoiceNumber', kind: 'text', label: 'Invoice', required: true }, { name: 'total', kind: 'number', label: 'Total', required: true }], tables: [{ name: 'items', header: 'SKU|Quantity|Price', columns: ['sku', 'quantity', 'price'], delimiter: '|' }] }, null, 2);
   definitionKey = ''; sourceId = ''; templateId = 'invoice-layout'; templateVersion = 1; templateLabel = 'invoice'; minimumScore = .85; minimumMargin = .05; rotation = 0; grayscale = false; contrast = 1;

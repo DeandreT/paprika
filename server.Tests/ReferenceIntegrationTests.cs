@@ -7,10 +7,10 @@ using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
-using PaperworkClassifier;
+using paprika;
 using Xunit;
 
-namespace PaperworkClassifier.Tests;
+namespace paprika.Tests;
 
 public sealed class ReferenceIntegrationTests
 {
@@ -306,7 +306,7 @@ public sealed class ReferenceIntegrationTests
         );
         Assert.Equal("candidate", candidate.Status);
         var config = app.Services.GetRequiredService<IConfiguration>();
-        config["Paperwork:Connectors:lookup:Endpoint"] =
+        config["paprika:Connectors:lookup:Endpoint"] =
             "http://127.0.0.1:1/rebound-must-never-be-called";
         using (
             var staleVerify = await client.PostAsJsonAsync(
@@ -458,7 +458,7 @@ public sealed class ReferenceIntegrationTests
         public HttpClient Client()
         {
             var client = CreateClient();
-            client.DefaultRequestHeaders.Add("X-PaperworkClassifier", "1");
+            client.DefaultRequestHeaders.Add("X-paprika", "1");
             return client;
         }
 
@@ -469,16 +469,16 @@ public sealed class ReferenceIntegrationTests
                     config.AddInMemoryCollection(
                         new Dictionary<string, string?>
                         {
-                            ["Paperwork:DataDirectory"] = Path.Combine(Root, "data"),
-                            ["Paperwork:Mode"] = "simulation",
-                            ["Paperwork:Operations:Mode"] = "local",
+                            ["paprika:DataDirectory"] = Path.Combine(Root, "data"),
+                            ["paprika:Mode"] = "simulation",
+                            ["paprika:Operations:Mode"] = "local",
                             ["Logging:LogLevel:Default"] = "Warning",
-                            ["Paperwork:Connectors:out:Kind"] = "folderExport",
-                            ["Paperwork:Connectors:out:Root"] = Output,
-                            ["Paperwork:Connectors:lookup:Kind"] = lookup is null
+                            ["paprika:Connectors:out:Kind"] = "folderExport",
+                            ["paprika:Connectors:out:Root"] = Output,
+                            ["paprika:Connectors:lookup:Kind"] = lookup is null
                                 ? null
                                 : "httpLookup",
-                            ["Paperwork:Connectors:lookup:Endpoint"] = lookup,
+                            ["paprika:Connectors:lookup:Endpoint"] = lookup,
                         }
                     )
             );

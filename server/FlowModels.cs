@@ -1,6 +1,6 @@
 using System.Text.Json.Serialization;
 
-namespace PaperworkClassifier;
+namespace paprika;
 
 [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
 public sealed record FlowPolicy(FlowDefinition Definition);
@@ -110,6 +110,7 @@ public sealed record FlowRetryRequest(int Revision, string BlockId);
 
 public sealed class FlowAwaitingApprovalException : Exception { }
 
+[Wolverine.Attributes.MessageIdentity("PaperworkClassifier.ContinuePlatformFlow")]
 public sealed record ContinuePlatformFlow(string PacketId, int Revision, string? WorkId = null);
 
 public sealed class ContinuePlatformFlowHandler

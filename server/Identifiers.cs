@@ -1,6 +1,6 @@
 using System.Text.RegularExpressions;
 
-namespace PaperworkClassifier;
+namespace paprika;
 
 // Visible labelled references only; candidates are never business-system validation or association.
 public static class Identifiers

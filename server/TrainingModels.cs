@@ -3,7 +3,7 @@ using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 
-namespace PaperworkClassifier;
+namespace paprika;
 
 public sealed record TrainingModelRef(
     string Id,

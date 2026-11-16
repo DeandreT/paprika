@@ -2,7 +2,7 @@ import { test, expect } from '@playwright/test';
 import { menuAction } from './navigation';
 import { textPdf } from './fixtures';
 
-const headers = { 'X-PaperworkClassifier': '1' };
+const headers = { 'X-paprika': '1' };
 const fixture = () => textPdf([
   'SYNTHETIC TEST ONLY\nBILL OF LADING\nLOAD #: LOAD-001\nPage 1 of 2',
   'SYNTHETIC TEST ONLY\nBILL OF LADING\nLOAD #: LOAD-001\nPage 2 of 2 - continuation',

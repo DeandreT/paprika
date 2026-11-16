@@ -1,4 +1,4 @@
-namespace PaperworkClassifier;
+namespace paprika;
 
 public sealed record ConnectorImportRequest(
     string? WorkflowId = null,

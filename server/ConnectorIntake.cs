@@ -1,6 +1,6 @@
 using System.Security.Cryptography;
 
-namespace PaperworkClassifier;
+namespace paprika;
 
 public sealed class ConnectorIntake(Store store, ConnectorCatalog catalog)
 {

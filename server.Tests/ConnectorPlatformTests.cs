@@ -3,10 +3,10 @@ using System.Net;
 using System.Net.Sockets;
 using Microsoft.Data.Sqlite;
 using Microsoft.Extensions.Configuration;
-using PaperworkClassifier;
+using paprika;
 using Xunit;
 
-namespace PaperworkClassifier.Tests;
+namespace paprika.Tests;
 
 public sealed class ConnectorPlatformTests : IDisposable
 {
@@ -128,7 +128,7 @@ public sealed class ConnectorPlatformTests : IDisposable
     public void TestRunsAndReceiversWithoutIdempotencyAreRejected()
     {
         fixture.SetConnector("http", "httpDelivery", endpoint: "http://127.0.0.1:1/never");
-        fixture.Config["Paperwork:Connectors:http:SupportsIdempotency"] = "false";
+        fixture.Config["paprika:Connectors:http:SupportsIdempotency"] = "false";
         var packet = fixture.Ready();
         Assert.Throws<InvalidDataException>(() =>
             fixture.Deliveries.Queue("http", new(packet.Id, packet.Revision))
@@ -165,7 +165,7 @@ internal sealed class ConnectorTestFixture : IDisposable
             .AddInMemoryCollection(
                 new Dictionary<string, string?>
                 {
-                    { "Paperwork:DataDirectory", Path.Combine(Root, "data") },
+                    { "paprika:DataDirectory", Path.Combine(Root, "data") },
                 }
             )
             .Build();
@@ -177,10 +177,10 @@ internal sealed class ConnectorTestFixture : IDisposable
 
     public void SetConnector(string id, string kind, string? root = null, string? endpoint = null)
     {
-        Config[$"Paperwork:Connectors:{id}:Kind"] = kind;
-        Config[$"Paperwork:Connectors:{id}:Root"] = root;
-        Config[$"Paperwork:Connectors:{id}:Endpoint"] = endpoint;
-        Config[$"Paperwork:Connectors:{id}:SupportsIdempotency"] = "true";
+        Config[$"paprika:Connectors:{id}:Kind"] = kind;
+        Config[$"paprika:Connectors:{id}:Root"] = root;
+        Config[$"paprika:Connectors:{id}:Endpoint"] = endpoint;
+        Config[$"paprika:Connectors:{id}:SupportsIdempotency"] = "true";
     }
 
     public Packet Ready(ReferencePolicy? policy = null)

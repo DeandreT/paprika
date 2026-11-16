@@ -2,27 +2,27 @@ using System.IO.Compression;
 using System.Net;
 using System.Text.Json;
 using Microsoft.Extensions.Configuration;
-using PaperworkClassifier;
+using paprika;
 using PdfSharp.Pdf.IO;
 using Xunit;
 
-namespace PaperworkClassifier.Tests;
+namespace paprika.Tests;
 
 public sealed class BackendTests : IDisposable
 {
     readonly string root = Path.Combine(
         Path.GetTempPath(),
-        "paperwork-tests-" + Guid.NewGuid().ToString("N")
+        "paprika-tests-" + Guid.NewGuid().ToString("N")
     );
     IConfiguration Config =>
         new ConfigurationBuilder()
             .AddInMemoryCollection(
                 new Dictionary<string, string?>
                 {
-                    { "Paperwork:DataDirectory", root },
-                    { "Paperwork:AzureEndpoint", "https://ocr.example.test" },
-                    { "Paperwork:AzureKey", "test-placeholder" },
-                    { "Paperwork:JevApiKey", "test-placeholder" },
+                    { "paprika:DataDirectory", root },
+                    { "paprika:AzureEndpoint", "https://ocr.example.test" },
+                    { "paprika:AzureKey", "test-placeholder" },
+                    { "paprika:JevApiKey", "test-placeholder" },
                 }
             )
             .Build();

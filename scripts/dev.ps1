@@ -15,8 +15,8 @@ function Start-Child([string]$file, [string[]]$arguments, [string]$directory, [b
     foreach ($argument in $arguments) { $info.ArgumentList.Add($argument) }
     if ($frontend) {
         # Provider credentials belong only in the backend process.
-        $null = $info.Environment.Remove('Paperwork__AzureKey')
-        $null = $info.Environment.Remove('Paperwork__JevApiKey')
+        $null = $info.Environment.Remove('paprika__AzureKey')
+        $null = $info.Environment.Remove('paprika__JevApiKey')
     }
     $process = [System.Diagnostics.Process]::Start($info)
     $children.Add($process)
@@ -30,13 +30,13 @@ try {
             & npm.cmd ci
             if ($LASTEXITCODE -ne 0) { throw 'Frontend dependency installation failed.' }
         } finally { Pop-Location }
-        & dotnet restore "$root/server/PaperworkClassifier.Api.csproj"
+        & dotnet restore "$root/server/paprika.Api.csproj"
         if ($LASTEXITCODE -ne 0) { throw 'Backend restore failed.' }
     }
     if (-not (Test-Path "$root/client/node_modules")) { throw 'Run with -Install on first use.' }
-    $api = Start-Child 'dotnet' @('run', '--project', "$root/server/PaperworkClassifier.Api.csproj", '--no-launch-profile', '--urls', 'http://127.0.0.1:5080') $root
+    $api = Start-Child 'dotnet' @('run', '--project', "$root/server/paprika.Api.csproj", '--no-launch-profile', '--urls', 'http://127.0.0.1:5080') $root
     $ui = Start-Child 'pwsh' @('-NoProfile', '-Command', '& npm.cmd run start -- --host 127.0.0.1') "$root/client" $true
-    Write-Host 'PaperworkClassifier: http://127.0.0.1:4200 (allow the first build to finish). Ctrl+C stops both processes.'
+    Write-Host 'paprika: http://127.0.0.1:4200 (allow the first build to finish). Ctrl+C stops both processes.'
     if (-not $NoBrowser) { Start-Process 'http://127.0.0.1:4200' }
     while (-not $api.HasExited -and -not $ui.HasExited) { Start-Sleep -Seconds 1 }
     if ($api.HasExited -and $api.ExitCode -ne 0) { throw "API exited with code $($api.ExitCode)." }

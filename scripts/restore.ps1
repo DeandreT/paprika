@@ -4,7 +4,7 @@ param(
 )
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
-if (Get-NetTCPConnection -LocalPort 5080 -State Listen -ErrorAction SilentlyContinue) { throw 'Stop PaperworkClassifier before restoring.' }
+if (Get-NetTCPConnection -LocalPort 5080 -State Listen -ErrorAction SilentlyContinue) { throw 'Stop paprika before restoring.' }
 $backup = (Resolve-Path -LiteralPath $BackupDirectory).Path
 $target = [IO.Path]::GetFullPath($DataDirectory).TrimEnd('\', '/')
 foreach ($path in @($backup, $target)) {
@@ -50,7 +50,7 @@ try {
     }
     if (Test-Path -LiteralPath $target) { throw 'Destination appeared during restore; refusing to overwrite it.' }
     Move-Item -LiteralPath $stage -Destination $target
-    Write-Host "Restored to $target. Set Paperwork__DataDirectory to this folder to use the recovered data."
+    Write-Host "Restored to $target. Set paprika__DataDirectory to this folder to use the recovered data."
 } finally {
     if (Test-Path -LiteralPath $stage) { Remove-Item -LiteralPath $stage -Recurse -Force }
 }

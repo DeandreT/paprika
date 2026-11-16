@@ -2,13 +2,13 @@
 <html lang="en">
   <head>
     <meta charset="utf-8" />
-    <title>PaperworkClassifier</title>
+    <title>paprika</title>
     <base href="/" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <script>
       (() => {
         let preference;
-        try { preference = localStorage.getItem("paperwork-theme"); } catch {}
+        try { preference = localStorage.getItem("paprika-theme") ?? localStorage.getItem("paperwork-theme"); } catch {}
         document.documentElement.dataset.theme = preference === "dark" ||
           (preference !== "light" && matchMedia("(prefers-color-scheme: dark)").matches) ? "dark" : "light";
       })();

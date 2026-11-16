@@ -2,10 +2,10 @@ using System.Text.Json;
 using System.Text.RegularExpressions;
 using Microsoft.Data.Sqlite;
 using Microsoft.Extensions.Configuration;
-using PaperworkClassifier;
+using paprika;
 using Xunit;
 
-namespace PaperworkClassifier.Tests;
+namespace paprika.Tests;
 
 public sealed class WorkflowRegistryTests
 {
@@ -548,9 +548,9 @@ public sealed class WorkflowRegistryTests
         Error(400, () => db.Resolve(new(live.Id, 1, true, live.Revision)));
         live = db.Registry.Publish(live.Kind, live.Id, 1, live.Revision);
         Error(400, () => db.Resolve(new(live.Id, 1)));
-        db.Configuration["Paperwork:AzureEndpoint"] = "https://example.invalid";
-        db.Configuration["Paperwork:AzureKey"] = "test-only";
-        db.Configuration["Paperwork:JevApiKey"] = "test-only";
+        db.Configuration["paprika:AzureEndpoint"] = "https://example.invalid";
+        db.Configuration["paprika:AzureKey"] = "test-only";
+        db.Configuration["paprika:JevApiKey"] = "test-only";
         Assert.Equal("approved-model", db.Resolve(new(live.Id, 1)).Model);
     }
 
@@ -608,8 +608,8 @@ public sealed class WorkflowRegistryTests
             Assert.Equal(legacy.Hash, WorkflowRegistry.Legacy(mode).Hash);
             Assert.Matches("^[a-f0-9]{64}$", legacy.Hash);
         }
-        db.Configuration["Paperwork:AzureKey"] = "secret-sentinel-azure";
-        db.Configuration["Paperwork:JevApiKey"] = "secret-sentinel-classifier";
+        db.Configuration["paprika:AzureKey"] = "secret-sentinel-azure";
+        db.Configuration["paprika:JevApiKey"] = "secret-sentinel-classifier";
         var json = JsonSerializer.Serialize(
             new { Catalog = db.Registry.Catalog(), Snapshot = db.Resolve() },
             Contract.Json
@@ -683,7 +683,7 @@ public sealed class WorkflowRegistryTests
     {
         private readonly string root = Path.Combine(
             Path.GetTempPath(),
-            "paperwork-registry-tests-" + Guid.NewGuid().ToString("N")
+            "paprika-registry-tests-" + Guid.NewGuid().ToString("N")
         );
         public IConfigurationRoot Configuration { get; }
         public Store Store { get; }
@@ -695,9 +695,9 @@ public sealed class WorkflowRegistryTests
                 .AddInMemoryCollection(
                     new Dictionary<string, string?>
                     {
-                        ["Paperwork:DataDirectory"] = root,
-                        ["Paperwork:Mode"] = mode,
-                        ["Paperwork:JevModel"] = "approved-model",
+                        ["paprika:DataDirectory"] = root,
+                        ["paprika:Mode"] = mode,
+                        ["paprika:JevModel"] = "approved-model",
                     }
                 )
                 .Build();

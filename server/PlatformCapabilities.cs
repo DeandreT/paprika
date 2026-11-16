@@ -1,7 +1,7 @@
 using System.Text.Json.Serialization;
 using Microsoft.Data.Sqlite;
 
-namespace PaperworkClassifier;
+namespace paprika;
 
 // Optional capabilities keep previously published workflow snapshots byte-compatible.
 [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]

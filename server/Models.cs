@@ -1,6 +1,6 @@
 using System.Text.Json;
 
-namespace PaperworkClassifier;
+namespace paprika;
 
 public sealed record SourceIdentifier(string SourceId, string Kind, string Value, string Evidence);
 

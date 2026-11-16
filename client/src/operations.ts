@@ -131,7 +131,7 @@ import { DeadLetter, Messaging, Operations } from "./models";
 })
 export class OperationsComponent {
   private http = inject(HttpClient);
-  private headers = new HttpHeaders({ "X-PaperworkClassifier": "1" });
+  private headers = new HttpHeaders({ "X-paprika": "1" });
   private generation = 0;
   private disposed = false;
   private queuedReplays = signal<Record<string, string>>({});

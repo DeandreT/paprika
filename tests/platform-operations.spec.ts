@@ -4,7 +4,7 @@ import { menuAction } from './navigation';
 test('team operations panel claims, renews and releases a durable task and previews safe retention', async ({ page, request }) => {
   const session = await (await request.get('/api/operations-platform/session')).json();
   test.skip(session.mode !== 'local', 'Shared login and authorization are exercised by the isolated OperationsApiTests factory.');
-  const accepted = await request.post('/api/packets/demo', { headers: { 'X-PaperworkClassifier': '1' } });
+  const accepted = await request.post('/api/packets/demo', { headers: { 'X-paprika': '1' } });
   expect(accepted.ok()).toBeTruthy();
   const packet = await accepted.json();
   await expect.poll(async () => (await (await request.get(`/api/packets/${packet.id}`)).json()).status).toBe('review');

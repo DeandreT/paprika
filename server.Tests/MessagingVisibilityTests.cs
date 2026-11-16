@@ -9,7 +9,7 @@ using Wolverine.Persistence.Durability.DeadLetterManagement;
 using Wolverine.Runtime;
 using Xunit;
 
-namespace PaperworkClassifier.Tests;
+namespace paprika.Tests;
 
 public sealed class MessagingVisibilityTests : IDisposable
 {
@@ -25,7 +25,7 @@ public sealed class MessagingVisibilityTests : IDisposable
     {
         var config = new ConfigurationBuilder()
             .AddInMemoryCollection(
-                new Dictionary<string, string?> { ["Paperwork:DataDirectory"] = root }
+                new Dictionary<string, string?> { ["paprika:DataDirectory"] = root }
             )
             .Build();
         var store = new Store(config);
