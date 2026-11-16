@@ -6,7 +6,7 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Xunit;
 
-namespace PaperworkClassifier.Tests;
+namespace paprika.Tests;
 
 public sealed class OpenApiTests
 {
@@ -15,7 +15,7 @@ public sealed class OpenApiTests
     {
         var data = Path.Combine(
             Path.GetTempPath(),
-            "paperwork-openapi-" + Guid.NewGuid().ToString("N")
+            "paprika-openapi-" + Guid.NewGuid().ToString("N")
         );
         try
         {
@@ -69,9 +69,7 @@ public sealed class OpenApiTests
                         var marker = operation
                             .GetProperty("parameters")
                             .EnumerateArray()
-                            .Single(p =>
-                                p.GetProperty("name").GetString() == "X-PaperworkClassifier"
-                            );
+                            .Single(p => p.GetProperty("name").GetString() == "X-paprika");
                         Assert.True(marker.GetProperty("required").GetBoolean());
                         Assert.Equal(
                             "1",
@@ -142,7 +140,7 @@ public sealed class OpenApiTests
             );
             // Runtime JSON must still match the named response shape after replacing anonymous DTOs.
             using var demoRequest = new HttpRequestMessage(HttpMethod.Post, "/api/packets/demo");
-            demoRequest.Headers.Add("X-PaperworkClassifier", "1");
+            demoRequest.Headers.Add("X-paprika", "1");
             using var demoResponse = await client.SendAsync(demoRequest);
             demoResponse.EnsureSuccessStatusCode();
             using var demo = JsonDocument.Parse(await demoResponse.Content.ReadAsStringAsync());
@@ -167,8 +165,8 @@ public sealed class OpenApiTests
                     config.AddInMemoryCollection(
                         new Dictionary<string, string?>
                         {
-                            ["Paperwork:DataDirectory"] = data,
-                            ["Paperwork:Mode"] = "Demo",
+                            ["paprika:DataDirectory"] = data,
+                            ["paprika:Mode"] = "Demo",
                         }
                     )
             );

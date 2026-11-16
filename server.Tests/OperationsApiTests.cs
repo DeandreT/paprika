@@ -5,10 +5,10 @@ using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
-using PaperworkClassifier;
+using paprika;
 using Xunit;
 
-namespace PaperworkClassifier.Tests;
+namespace paprika.Tests;
 
 public sealed class OperationsApiTests
 {
@@ -19,7 +19,7 @@ public sealed class OperationsApiTests
     {
         await using var factory = new OperationsFactory();
         using var client = factory.CreateClient();
-        client.DefaultRequestHeaders.Add("X-PaperworkClassifier", "1");
+        client.DefaultRequestHeaders.Add("X-paprika", "1");
         client.DefaultRequestHeaders.Authorization = new("Bearer", Token);
         var store = factory.Services.GetRequiredService<Store>();
         var page = new Page();
@@ -154,7 +154,7 @@ public sealed class OperationsApiTests
     {
         await using var factory = new OperationsFactory();
         using var client = factory.CreateClient();
-        client.DefaultRequestHeaders.Add("X-PaperworkClassifier", "1");
+        client.DefaultRequestHeaders.Add("X-paprika", "1");
         var session = (
             await client.GetFromJsonAsync<OperationsSessionResponse>(
                 "/api/operations-platform/session"
@@ -204,13 +204,13 @@ public sealed class OperationsApiTests
                     config.AddInMemoryCollection(
                         new Dictionary<string, string?>
                         {
-                            ["Paperwork:DataDirectory"] = root,
-                            ["Paperwork:Operations:Mode"] = "shared",
-                            ["Paperwork:Operations:Users:0:Name"] = "alice",
-                            ["Paperwork:Operations:Users:0:Token"] = Token,
-                            ["Paperwork:Operations:Users:0:Roles:0"] = "reviewer",
-                            ["Paperwork:Operations:Users:0:Workflows:0"] = "legacy-logistics",
-                            ["Paperwork:Operations:Users:0:Workflows:1"] = "general-logistics",
+                            ["paprika:DataDirectory"] = root,
+                            ["paprika:Operations:Mode"] = "shared",
+                            ["paprika:Operations:Users:0:Name"] = "alice",
+                            ["paprika:Operations:Users:0:Token"] = Token,
+                            ["paprika:Operations:Users:0:Roles:0"] = "reviewer",
+                            ["paprika:Operations:Users:0:Workflows:0"] = "legacy-logistics",
+                            ["paprika:Operations:Users:0:Workflows:1"] = "general-logistics",
                         }
                     )
             );

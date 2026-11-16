@@ -3,7 +3,7 @@ using System.Security.Cryptography;
 using System.Text;
 using Microsoft.AspNetCore.DataProtection;
 
-namespace PaperworkClassifier;
+namespace paprika;
 
 public sealed record OperationsIdentity(string Name, string[] Roles, string[] Workflows)
 {
@@ -25,13 +25,13 @@ public sealed class OperationsAccess(
     IDataProtectionProvider protection
 )
 {
-    private const string CookieName = "PaperworkOperations";
+    private const string CookieName = "paprikaOperations";
     private readonly IDataProtector protector = protection.CreateProtector(
-        "PaperworkClassifier.Operations.Session.v1"
+        "paprika.Operations.Session.v1"
     );
     public bool Shared =>
         string.Equals(
-            configuration["Paperwork:Operations:Mode"],
+            configuration["paprika:Operations:Mode"],
             "shared",
             StringComparison.OrdinalIgnoreCase
         );
@@ -44,7 +44,7 @@ public sealed class OperationsAccess(
         // the server-side allowlist, including identities established by ASP.NET auth.
         string? name = null;
         if (
-            configuration.GetValue<bool>("Paperwork:Operations:UseAspNetIdentity")
+            configuration.GetValue<bool>("paprika:Operations:UseAspNetIdentity")
             && context.User.Identity?.IsAuthenticated == true
         )
             name = context.User.Identity.Name
@@ -74,7 +74,7 @@ public sealed class OperationsAccess(
                 var supplied = SHA256.HashData(Encoding.UTF8.GetBytes(header[7..]));
                 foreach (
                     var account in configuration
-                        .GetSection("Paperwork:Operations:Users")
+                        .GetSection("paprika:Operations:Users")
                         .GetChildren()
                 )
                 {
@@ -97,7 +97,7 @@ public sealed class OperationsAccess(
         if (string.IsNullOrWhiteSpace(name))
             return null;
         var matches = configuration
-            .GetSection("Paperwork:Operations:Users")
+            .GetSection("paprika:Operations:Users")
             .GetChildren()
             .Where(u => string.Equals(u["Name"], name, StringComparison.Ordinal))
             .ToArray();

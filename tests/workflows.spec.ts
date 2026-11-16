@@ -3,7 +3,7 @@ import { randomUUID } from 'node:crypto';
 import { inflateRawSync } from 'node:zlib';
 import { textPdf } from './fixtures';
 
-const headers = { 'X-PaperworkClassifier': '1' };
+const headers = { 'X-paprika': '1' };
 type Ref = { id: string; version: number };
 type Split = { mode: string; pageCount: number; pattern: string };
 type TypeConfig = { keywords: string[]; instructions: string; split: Split };
@@ -388,7 +388,7 @@ test.describe('versioned workflow API acceptance', () => {
         const data = new FormData();
         data.append('files', new Blob([new Uint8Array(bytes)], { type: 'application/pdf' }), 'synthetic-workflows.pdf');
         try {
-          await fetch('/api/packets', { method: 'POST', headers: { 'X-PaperworkClassifier': '1', 'Idempotency-Key': key }, body: data });
+          await fetch('/api/packets', { method: 'POST', headers: { 'X-paprika': '1', 'Idempotency-Key': key }, body: data });
           return 'unexpected-response';
         } catch { return 'response-lost'; }
       }, { bytes: [...textPdf(pages)], key });

@@ -6,10 +6,10 @@ using Microsoft.AspNetCore.TestHost;
 using Microsoft.Data.Sqlite;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
-using PaperworkClassifier;
+using paprika;
 using Xunit;
 
-namespace PaperworkClassifier.Tests;
+namespace paprika.Tests;
 
 public sealed class DeliveryTests : IDisposable
 {
@@ -17,7 +17,7 @@ public sealed class DeliveryTests : IDisposable
     public async Task DeliveryOpenApiDescribesBinaryArtifactAndSimulationContracts()
     {
         var builder = WebApplication.CreateBuilder();
-        builder.Configuration["Paperwork:DataDirectory"] = root;
+        builder.Configuration["paprika:DataDirectory"] = root;
         builder.Host.UsePacketMessaging();
         builder.Services.AddSingleton<JobCoordinator>();
         builder.Services.AddSingleton<Settings>();
@@ -82,7 +82,7 @@ public sealed class DeliveryTests : IDisposable
         new(
             new ConfigurationBuilder()
                 .AddInMemoryCollection(
-                    new Dictionary<string, string?> { ["Paperwork:DataDirectory"] = root }
+                    new Dictionary<string, string?> { ["paprika:DataDirectory"] = root }
                 )
                 .Build()
         );

@@ -6,10 +6,10 @@ using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
-using PaperworkClassifier;
+using paprika;
 using Xunit;
 
-namespace PaperworkClassifier.Tests;
+namespace paprika.Tests;
 
 public sealed class CaseFlowApiTests
 {
@@ -29,12 +29,12 @@ public sealed class CaseFlowApiTests
             .AddInMemoryCollection(
                 new Dictionary<string, string?>
                 {
-                    ["Paperwork:Operations:Mode"] = "shared",
-                    ["Paperwork:Operations:Users:0:Name"] = "alice",
-                    ["Paperwork:Operations:Users:0:Roles:0"] = "reviewer",
-                    ["Paperwork:Operations:Users:0:Workflows:0"] = packet.EffectiveWorkflow.Id,
-                    ["Paperwork:Operations:Users:0:Token"] = token,
-                    ["Paperwork:Operations:Retention:ExecutionEnabled"] = "true",
+                    ["paprika:Operations:Mode"] = "shared",
+                    ["paprika:Operations:Users:0:Name"] = "alice",
+                    ["paprika:Operations:Users:0:Roles:0"] = "reviewer",
+                    ["paprika:Operations:Users:0:Workflows:0"] = packet.EffectiveWorkflow.Id,
+                    ["paprika:Operations:Users:0:Token"] = token,
+                    ["paprika:Operations:Retention:ExecutionEnabled"] = "true",
                 }
             );
         builder.Services.AddSingleton(db.Store);

@@ -4,13 +4,13 @@ using Microsoft.Extensions.Configuration;
 using SkiaSharp;
 using Xunit;
 
-namespace PaperworkClassifier.Tests;
+namespace paprika.Tests;
 
 public sealed class OpenAiProviderTests : IDisposable
 {
     private readonly string root = Path.Combine(
         Path.GetTempPath(),
-        "paperwork-openai-" + Guid.NewGuid().ToString("N")
+        "paprika-openai-" + Guid.NewGuid().ToString("N")
     );
 
     private IConfiguration Config =>
@@ -18,9 +18,9 @@ public sealed class OpenAiProviderTests : IDisposable
             .AddInMemoryCollection(
                 new Dictionary<string, string?>
                 {
-                    ["Paperwork:DataDirectory"] = root,
+                    ["paprika:DataDirectory"] = root,
                     ["OPENAI_API_KEY"] = "test-placeholder",
-                    ["Paperwork:OpenAiBaseUrl"] = "https://openai.example.test/v1",
+                    ["paprika:OpenAiBaseUrl"] = "https://openai.example.test/v1",
                 }
             )
             .Build();

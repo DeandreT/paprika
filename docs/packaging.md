@@ -4,7 +4,7 @@ This packages the approved local PoC: one .NET process serves the Angular UI, AP
 
 ## Build
 
-On Windows, install PowerShell 7, the .NET 10 SDK, and the Node/npm version required by `client/package.json`. From `C:/dev/PaperworkClassifier`, in a shell without provider credentials:
+On Windows, install PowerShell 7, the .NET 10 SDK, and the Node/npm version required by `client/package.json`. From `C:/dev/paprika`, in a shell without provider credentials:
 
 ```powershell
 pwsh -NoProfile -File ./scripts/publish.ps1
@@ -36,23 +36,23 @@ pwsh -NoProfile -File ./scripts/run-published.ps1 -PackageDirectory ./artifacts/
 
 Open `http://127.0.0.1:5080`. Health is `/api/health`; the OpenAPI document is `/openapi/v1.json`. Stop with Ctrl+C. Port 5080 must be free; stop your own development API before starting the package. The launcher sets the content root to the package so static assets work regardless of the caller's directory.
 
-Simulation mode is the default and needs no credentials. It accepts PDF/PNG/JPEG uploads, extracts embedded PDF text locally, and proposes labels/boundaries using deterministic rules. Scanned PDFs and images without text remain unknown for manual review; no OCR or AI result is invented. The separate demo button generates a synthetic example. Packet data defaults to `%LOCALAPPDATA%/PaperworkClassifier`, separate from the release folder. Set `Paperwork__DataDirectory` to a different local directory for isolated demonstrations. Replacing the package does not reset packet data. Do not run two instances against the same data directory.
+Simulation mode is the default and needs no credentials. It accepts PDF/PNG/JPEG uploads, extracts embedded PDF text locally, and proposes labels/boundaries using deterministic rules. Scanned PDFs and images without text remain unknown for manual review; no OCR or AI result is invented. The separate demo button generates a synthetic example. Packet data defaults to `%LOCALAPPDATA%/paprika`, separate from the release folder, with [legacy database fallback](renaming.md#existing-data). Set `paprika__DataDirectory` to a different local directory for isolated demonstrations. Replacing the package does not reset packet data. Do not run two instances against the same data directory.
 
 ## Live runtime configuration
 
 Configure these environment variables only for the runtime process:
 
-- `Paperwork__Mode=Live`
-- `Paperwork__AzureEndpoint`: Azure Document Intelligence HTTPS endpoint
-- `Paperwork__AzureKey`: Azure key
-- `Paperwork__JevApiKey`: TypeSafe Jev API key
-- `Paperwork__JevModel`: optional model, default `jev-latest`
-- `Paperwork__DataDirectory`: optional local data folder
+- `paprika__Mode=Live`
+- `paprika__AzureEndpoint`: Azure Document Intelligence HTTPS endpoint
+- `paprika__AzureKey`: Azure key
+- `paprika__JevApiKey`: TypeSafe Jev API key
+- `paprika__JevModel`: optional model, default `jev-latest`
+- `paprika__DataDirectory`: optional local data folder
 
 
 ```powershell
-$env:Paperwork__Mode = 'Live'
-$env:Paperwork__AzureEndpoint = 'https://YOUR-RESOURCE.cognitiveservices.azure.com'
+$env:paprika__Mode = 'Live'
+$env:paprika__AzureEndpoint = 'https://YOUR-RESOURCE.cognitiveservices.azure.com'
 ```
 
 Never wrap `publish.ps1`, dependency installation, or build commands in credential injection. Do not save keys in the package, source, browser configuration, or documentation. The packaged launcher runs the already-built DLL without restoration or compilation.
@@ -67,4 +67,4 @@ The platform release extends versioned workflows with quality routing, learned t
 
 Upgrade using a stopped-application backup first. Legacy delivery state is migrated without deleting the old database or artifacts. After migration, use the new release for that data directory; roll back by restoring the pre-upgrade backup to a separate directory for the earlier binary. Never run two releases against the same data simultaneously.
 
-Loopback/host validation and the `X-PaperworkClassifier: 1` mutation-header protection run before static files. Same-origin requests on port 5080 and the existing development proxy on port 4200 remain supported. The SPA fallback does not convert missing `/api` or `/openapi` endpoints into HTML successes. The development command `scripts/dev.ps1` still runs Angular separately.
+Loopback/host validation and the `X-paprika: 1` mutation-header protection run before static files. The legacy marker remains accepted; see [rename notes](renaming.md). Same-origin requests on port 5080 and the existing development proxy on port 4200 remain supported. The SPA fallback does not convert missing `/api` or `/openapi` endpoints into HTML successes. The development command `scripts/dev.ps1` still runs Angular separately.

@@ -1,7 +1,7 @@
 using System.Text.Json;
 using Microsoft.Data.Sqlite;
 
-namespace PaperworkClassifier;
+namespace paprika;
 
 public sealed record OperationsTaskEvent(
     DateTimeOffset At,
@@ -113,8 +113,8 @@ public sealed class OperationsPlatformStore
 
     public OperationsRetentionPolicy RetentionPolicy =>
         new(
-            Math.Max(1, config.GetValue("Paperwork:Operations:Retention:MinimumAgeDays", 90)),
-            config.GetValue<bool>("Paperwork:Operations:Retention:ExecutionEnabled")
+            Math.Max(1, config.GetValue("paprika:Operations:Retention:MinimumAgeDays", 90)),
+            config.GetValue<bool>("paprika:Operations:Retention:ExecutionEnabled")
         );
 
     public string? ValidateReview(
@@ -126,7 +126,7 @@ public sealed class OperationsPlatformStore
     {
         if (
             !string.Equals(
-                config["Paperwork:Operations:Mode"],
+                config["paprika:Operations:Mode"],
                 "shared",
                 StringComparison.OrdinalIgnoreCase
             )
@@ -158,7 +158,7 @@ public sealed class OperationsPlatformStore
     {
         if (
             !string.Equals(
-                config["Paperwork:Operations:Mode"],
+                config["paprika:Operations:Mode"],
                 "shared",
                 StringComparison.OrdinalIgnoreCase
             )
@@ -323,7 +323,7 @@ public sealed class OperationsPlatformStore
                     p.CreatedAt.AddHours(
                         policy?.ReviewSlaHours
                             ?? Math.Clamp(
-                                config.GetValue("Paperwork:Operations:ReviewSlaHours", 24),
+                                config.GetValue("paprika:Operations:ReviewSlaHours", 24),
                                 1,
                                 8760
                             )
@@ -1027,7 +1027,7 @@ public sealed class OperationsPlatformStore
             throw new OperationsConflict("Administrator access required.", 403);
         if (
             !RetentionPolicy.ExecutionEnabled
-            || !config.GetValue<bool>("Paperwork:Operations:Retention:PermanentDeletionEnabled")
+            || !config.GetValue<bool>("paprika:Operations:Retention:PermanentDeletionEnabled")
             || !request.ConfirmPermanentDeletion
         )
             throw new OperationsConflict(

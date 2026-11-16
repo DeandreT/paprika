@@ -1,7 +1,7 @@
 using Microsoft.AspNetCore.Http.HttpResults;
 using Microsoft.OpenApi;
 
-namespace PaperworkClassifier;
+namespace paprika;
 
 public static class DeliveryEndpoints
 {

@@ -138,7 +138,7 @@ export class AppComponent {
   inboxWorkflows = computed(() => [...new Map(this.packets().filter(p => p.workflow).map(p => [refKey(p.workflow), p.workflow!])).values()]);
   private http = inject(HttpClient);
   private destroy = inject(DestroyRef);
-  private headers = new HttpHeaders({ "X-PaperworkClassifier": "1" });
+  private headers = new HttpHeaders({ "X-paprika": "1" });
   private timer?: ReturnType<typeof setTimeout>;
   private disposed = false;
   private selectionToken = 0;

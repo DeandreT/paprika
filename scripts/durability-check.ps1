@@ -2,13 +2,13 @@ param([string]$PackageDirectory = (Join-Path (Split-Path $PSScriptRoot -Parent) 
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 $package = (Resolve-Path -LiteralPath $PackageDirectory).Path
-if (-not (Test-Path -LiteralPath "$package/PaperworkClassifier.Api.dll")) { throw 'Publish the durable application first.' }
+if (-not (Test-Path -LiteralPath "$package/paprika.Api.dll")) { throw 'Publish the durable application first.' }
 if (Get-NetTCPConnection -LocalPort 5080 -State Listen -ErrorAction SilentlyContinue) { throw 'Port 5080 must be free; existing processes are never stopped.' }
-$root = Join-Path $env:LOCALAPPDATA ('Temp/opencode/paperwork-durability-' + [Guid]::NewGuid().ToString('N'))
+$root = Join-Path $env:LOCALAPPDATA ('Temp/opencode/paprika-durability-' + [Guid]::NewGuid().ToString('N'))
 $null = New-Item -ItemType Directory -Path $root
 $api = $null
 $base = 'http://127.0.0.1:5080'
-$headers = @{ 'X-PaperworkClassifier' = '1' }
+$headers = @{ 'X-paprika' = '1' }
 function Stop-TestApi {
     if ($null -ne $script:api) {
         if (-not $script:api.HasExited) { $script:api.Kill($true); $script:api.WaitForExit() }
@@ -20,10 +20,10 @@ function Start-TestApi([string]$data) {
     $info = [Diagnostics.ProcessStartInfo]::new('dotnet')
     $info.UseShellExecute = $false
     $info.WorkingDirectory = $package
-    foreach ($arg in @("$package/PaperworkClassifier.Api.dll", '--contentRoot', $package, '--Logging:LogLevel:Default=Error')) { $info.ArgumentList.Add($arg) }
-    $info.Environment['Paperwork__Mode'] = 'Simulation'
-    $info.Environment['Paperwork__DataDirectory'] = $data
-    foreach ($key in @('Paperwork__AzureKey', 'Paperwork__JevApiKey')) { $null = $info.Environment.Remove($key) }
+    foreach ($arg in @("$package/paprika.Api.dll", '--contentRoot', $package, '--Logging:LogLevel:Default=Error')) { $info.ArgumentList.Add($arg) }
+    $info.Environment['paprika__Mode'] = 'Simulation'
+    $info.Environment['paprika__DataDirectory'] = $data
+    foreach ($key in @('paprika__AzureKey', 'paprika__JevApiKey')) { $null = $info.Environment.Remove($key) }
     $script:api = [Diagnostics.Process]::Start($info)
     $deadline = [DateTimeOffset]::UtcNow.AddSeconds(45)
     while ([DateTimeOffset]::UtcNow -lt $deadline -and -not $script:api.HasExited) {

@@ -6,7 +6,7 @@ import { textPdf } from './fixtures';
 test('packaged native PDF imaging supports UI derivatives, visual templates and reviewed pixel-redacted downloads', async ({ page, request }) => {
   test.setTimeout(180_000);
   const suffix = randomUUID().replaceAll('-', '');
-  const headers = { 'X-PaperworkClassifier': '1' };
+  const headers = { 'X-paprika': '1' };
   const workflowId = `imaging-ui-${suffix}`;
   const templateId = `imaging-template-${suffix}`;
   const filename = `ARTIFICIAL-imaging-${suffix}.pdf`;

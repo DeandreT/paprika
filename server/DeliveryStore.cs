@@ -2,7 +2,7 @@ using System.IO.Compression;
 using System.Text.Json;
 using Microsoft.Data.Sqlite;
 
-namespace PaperworkClassifier;
+namespace paprika;
 
 public sealed record QueueDeliveryRequest(int Revision, string Scenario = "success");
 

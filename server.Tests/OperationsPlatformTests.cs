@@ -5,10 +5,10 @@ using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
-using PaperworkClassifier;
+using paprika;
 using Xunit;
 
-namespace PaperworkClassifier.Tests;
+namespace paprika.Tests;
 
 public sealed class OperationsPlatformTests : IDisposable
 {
@@ -31,15 +31,15 @@ public sealed class OperationsPlatformTests : IDisposable
             .AddInMemoryCollection(
                 new Dictionary<string, string?>
                 {
-                    ["Paperwork:DataDirectory"] = root,
-                    ["Paperwork:Operations:Mode"] = shared ? "shared" : "local",
-                    ["Paperwork:Operations:UseAspNetIdentity"] = "true",
-                    ["Paperwork:Operations:Users:0:Name"] = "alice",
-                    ["Paperwork:Operations:Users:0:Roles:0"] = "reviewer",
-                    ["Paperwork:Operations:Users:0:Workflows:0"] = "legacy-logistics",
-                    ["Paperwork:Operations:Users:0:Token"] = Token,
-                    ["Paperwork:Operations:Retention:ExecutionEnabled"] = execution.ToString(),
-                    ["Paperwork:Operations:Retention:PermanentDeletionEnabled"] = purge.ToString(),
+                    ["paprika:DataDirectory"] = root,
+                    ["paprika:Operations:Mode"] = shared ? "shared" : "local",
+                    ["paprika:Operations:UseAspNetIdentity"] = "true",
+                    ["paprika:Operations:Users:0:Name"] = "alice",
+                    ["paprika:Operations:Users:0:Roles:0"] = "reviewer",
+                    ["paprika:Operations:Users:0:Workflows:0"] = "legacy-logistics",
+                    ["paprika:Operations:Users:0:Token"] = Token,
+                    ["paprika:Operations:Retention:ExecutionEnabled"] = execution.ToString(),
+                    ["paprika:Operations:Retention:PermanentDeletionEnabled"] = purge.ToString(),
                 }
             )
             .Build();

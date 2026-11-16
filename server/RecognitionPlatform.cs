@@ -1,6 +1,6 @@
 using SkiaSharp;
 
-namespace PaperworkClassifier;
+namespace paprika;
 
 public sealed record RecognitionTemplate(
     string Id,

@@ -7,12 +7,12 @@ using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
-using PaperworkClassifier;
+using paprika;
 using PdfSharp.Drawing;
 using PdfSharp.Pdf.IO;
 using Xunit;
 
-namespace PaperworkClassifier.Tests;
+namespace paprika.Tests;
 
 public sealed class SimulationTests
 {
@@ -25,9 +25,7 @@ public sealed class SimulationTests
     {
         var settings = new Settings(
             new ConfigurationBuilder()
-                .AddInMemoryCollection(
-                    new Dictionary<string, string?> { ["Paperwork:Mode"] = mode }
-                )
+                .AddInMemoryCollection(new Dictionary<string, string?> { ["paprika:Mode"] = mode })
                 .Build()
         );
         Assert.Equal(expected, settings.Mode);
@@ -45,7 +43,7 @@ public sealed class SimulationTests
     {
         await using var app = new Factory(false, mode);
         using var client = app.CreateClient();
-        client.DefaultRequestHeaders.Add("X-PaperworkClassifier", "1");
+        client.DefaultRequestHeaders.Add("X-paprika", "1");
         using var upload = new MultipartFormDataContent();
         upload.Add(new ByteArrayContent(UploadWorkflowTests.MakePng()), "files", "image.png");
         using var response = await client.PostAsync("/api/packets", upload);
@@ -64,7 +62,7 @@ public sealed class SimulationTests
     {
         await using var app = new Factory(bogusCredentials);
         using var client = app.CreateClient();
-        client.DefaultRequestHeaders.Add("X-PaperworkClassifier", "1");
+        client.DefaultRequestHeaders.Add("X-paprika", "1");
         var config = await client.GetFromJsonAsync<ConfigResponse>("/api/config");
         Assert.Equal("simulation", config!.Mode);
         Assert.Equal(bogusCredentials, config.OcrConfigured);
@@ -306,11 +304,11 @@ public sealed class SimulationTests
         private Dictionary<string, string?> Values =>
             new()
             {
-                ["Paperwork:DataDirectory"] = Root,
-                ["Paperwork:Mode"] = mode,
-                ["Paperwork:AzureEndpoint"] = bogusCredentials ? "https://invalid.example" : "",
-                ["Paperwork:AzureKey"] = bogusCredentials ? "bogus-secret" : "",
-                ["Paperwork:JevApiKey"] = bogusCredentials ? "bogus-secret" : "",
+                ["paprika:DataDirectory"] = Root,
+                ["paprika:Mode"] = mode,
+                ["paprika:AzureEndpoint"] = bogusCredentials ? "https://invalid.example" : "",
+                ["paprika:AzureKey"] = bogusCredentials ? "bogus-secret" : "",
+                ["paprika:JevApiKey"] = bogusCredentials ? "bogus-secret" : "",
             };
         public IConfiguration Configuration =>
             new ConfigurationBuilder().AddInMemoryCollection(Values).Build();

@@ -2,7 +2,7 @@ import { test, expect } from '@playwright/test';
 import { menuAction } from './navigation';
 import { dragPage } from './drag-helpers';
 
-const mutationHeaders = { 'X-PaperworkClassifier': '1' };
+const mutationHeaders = { 'X-paprika': '1' };
 
 test('API preserves all source pages, rejects stale edits, and exports approved revisions', async ({ request }) => {
   const response = await request.post('/api/packets/demo', { headers: mutationHeaders });

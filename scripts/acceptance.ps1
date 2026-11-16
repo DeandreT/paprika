@@ -3,30 +3,30 @@ param([string]$PackageDirectory, [string[]]$TestFiles)
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 $root = Split-Path $PSScriptRoot -Parent
-foreach ($key in @('Paperwork__AzureKey', 'Paperwork__JevApiKey')) {
+foreach ($key in @('paprika__AzureKey', 'paprika__JevApiKey')) {
     if ([Environment]::GetEnvironmentVariable($key)) {
         throw 'Run synthetic acceptance checks without provider credentials; only the live API should receive them.'
     }
 }
 if (-not $PackageDirectory) { $PackageDirectory = Join-Path $root 'artifacts/publish-platform' }
 $package = (Resolve-Path -LiteralPath $PackageDirectory).Path
-if (-not (Test-Path -LiteralPath "$package/PaperworkClassifier.Api.dll")) { throw 'Publish the application first.' }
+if (-not (Test-Path -LiteralPath "$package/paprika.Api.dll")) { throw 'Publish the application first.' }
 if (-not (Test-Path -LiteralPath "$root/tests/node_modules/@playwright/test")) { throw 'Run npm ci from tests and install Playwright Chromium first.' }
 if (Get-NetTCPConnection -LocalPort 5080 -State Listen -ErrorAction SilentlyContinue) {
     throw 'Port 5080 is already in use. Stop your local API before running isolated acceptance checks.'
 }
 
-$data = Join-Path $env:LOCALAPPDATA ('Temp/opencode/paperwork-acceptance-' + [Guid]::NewGuid().ToString('N'))
+$data = Join-Path $env:LOCALAPPDATA ('Temp/opencode/paprika-acceptance-' + [Guid]::NewGuid().ToString('N'))
 $info = [System.Diagnostics.ProcessStartInfo]::new()
 $info.FileName = 'dotnet'
 $info.WorkingDirectory = $package
 $info.UseShellExecute = $false
-foreach ($argument in @("$package/PaperworkClassifier.Api.dll", '--contentRoot', $package, '--Logging:LogLevel:Microsoft.AspNetCore=Warning')) { $info.ArgumentList.Add($argument) }
-$info.Environment['Paperwork__Mode'] = 'Simulation'
-$info.Environment['Paperwork__DataDirectory'] = $data
-foreach ($key in @('Paperwork__AzureKey', 'Paperwork__JevApiKey')) { $null = $info.Environment.Remove($key) }
+foreach ($argument in @("$package/paprika.Api.dll", '--contentRoot', $package, '--Logging:LogLevel:Microsoft.AspNetCore=Warning')) { $info.ArgumentList.Add($argument) }
+$info.Environment['paprika__Mode'] = 'Simulation'
+$info.Environment['paprika__DataDirectory'] = $data
+foreach ($key in @('paprika__AzureKey', 'paprika__JevApiKey')) { $null = $info.Environment.Remove($key) }
 $api = $null
-$previousUrl = $env:PAPERWORK_TEST_URL
+$previousUrl = $env:PAPRIKA_TEST_URL
 try {
     $api = [System.Diagnostics.Process]::Start($info)
     $ready = $false
@@ -39,14 +39,14 @@ try {
         Start-Sleep -Milliseconds 250
     }
     if (-not $ready) { throw 'Published API did not become ready.' }
-    $env:PAPERWORK_TEST_URL = 'http://127.0.0.1:5080'
+    $env:PAPRIKA_TEST_URL = 'http://127.0.0.1:5080'
     Push-Location "$root/tests"
     try {
         if ($TestFiles) { & npm.cmd test -- @TestFiles } else { & npm.cmd test }
         if ($LASTEXITCODE -ne 0) { throw 'Published application acceptance tests failed.' }
     } finally { Pop-Location }
 } finally {
-    $env:PAPERWORK_TEST_URL = $previousUrl
+    $env:PAPRIKA_TEST_URL = $previousUrl
     if ($null -ne $api) {
         if (-not $api.HasExited) { $api.Kill($true); $api.WaitForExit() }
         $api.Dispose()

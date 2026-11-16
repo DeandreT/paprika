@@ -6,7 +6,7 @@ import { textPdf } from './fixtures';
 test('quality panel trains explicit synthetic data, saves a draft policy and exposes independent QA protection', async ({ page, request }) => {
   test.setTimeout(90_000);
   const suffix = randomUUID().replaceAll('-', '');
-  const headers = { 'X-PaperworkClassifier': '1' };
+  const headers = { 'X-paprika': '1' };
   const catalog = await (await request.get('/api/workflows')).json();
   const baseline = catalog.entries.find((e: any) => e.kind === 'workflow' && e.id === 'general-logistics' && e.version === 1);
   const draftResponse = await request.post('/api/workflows/catalog', { headers, data: {

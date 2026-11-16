@@ -6,7 +6,7 @@ test('generated API document is a valid OpenAPI specification with resolvable re
   expect(response.ok()).toBeTruthy();
   const document = await response.json();
   const validated = await SwaggerParser.validate(document);
-  expect(validated.info.title).toBe('PaperworkClassifier API');
+  expect(validated.info.title).toBe('paprika API');
   for (const path of ['/api/operations', '/api/messaging', '/api/messaging/deadletters/{id}/replay', '/api/packets/{id}/deliveries', '/api/packets/{id}/reprocess', '/api/packets/{id}/cancel', '/api/workflows', '/api/workflows/catalog', '/api/workflows/default', '/api/workflows/catalog/{kind}/{id}/{version}/publish']) {
     expect(validated.paths).toHaveProperty(path);
   }

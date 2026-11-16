@@ -1,4 +1,4 @@
-namespace PaperworkClassifier;
+namespace paprika;
 
 public sealed record OperationsPolicy(
     int ReviewSlaHours = 24,

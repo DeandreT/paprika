@@ -1,8 +1,8 @@
-using PaperworkClassifier;
+using paprika;
 using SkiaSharp;
 using Xunit;
 
-namespace PaperworkClassifier.Tests;
+namespace paprika.Tests;
 
 public sealed class RecognitionPlatformTests
 {

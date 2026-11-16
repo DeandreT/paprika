@@ -1,8 +1,8 @@
 using Microsoft.Extensions.Configuration;
-using PaperworkClassifier;
+using paprika;
 using Xunit;
 
-namespace PaperworkClassifier.Tests;
+namespace paprika.Tests;
 
 public sealed class CaseStoreTests
 {
@@ -191,7 +191,7 @@ internal sealed class CaseFlowDatabase : IDisposable
         Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
         "Temp",
         "opencode",
-        "paperwork-case-flow-" + Guid.NewGuid().ToString("N")
+        "paprika-case-flow-" + Guid.NewGuid().ToString("N")
     );
     public IConfiguration Configuration { get; }
     public Store Store { get; }
@@ -200,7 +200,7 @@ internal sealed class CaseFlowDatabase : IDisposable
     {
         Configuration = new ConfigurationBuilder()
             .AddInMemoryCollection(
-                new Dictionary<string, string?> { ["Paperwork:DataDirectory"] = root }
+                new Dictionary<string, string?> { ["paprika:DataDirectory"] = root }
             )
             .Build();
         Store = new Store(Configuration);

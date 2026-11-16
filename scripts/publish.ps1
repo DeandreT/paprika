@@ -6,7 +6,7 @@ $root = Split-Path $PSScriptRoot -Parent
 if (-not $OutputDirectory) { $OutputDirectory = Join-Path $root 'artifacts/publish-platform' }
 $output = [System.IO.Path]::GetFullPath($OutputDirectory)
 if (Test-Path -LiteralPath $output) { throw "Output already exists; choose a new -OutputDirectory: $output" }
-foreach ($key in @('Paperwork__AzureKey', 'Paperwork__JevApiKey')) {
+foreach ($key in @('paprika__AzureKey', 'paprika__JevApiKey')) {
     if ([Environment]::GetEnvironmentVariable($key)) {
         throw 'Publish from a shell without provider credentials. Inject credentials only when running the finished package.'
     }
@@ -32,7 +32,7 @@ try {
         & npm.cmd run build -- --configuration production
         if ($LASTEXITCODE -ne 0) { throw 'Frontend production build failed.' }
     } finally { Pop-Location }
-    & dotnet publish server/PaperworkClassifier.Api.csproj --configuration Release --self-contained false --output $stage
+    & dotnet publish server/paprika.Api.csproj --configuration Release --self-contained false --output $stage
     if ($LASTEXITCODE -ne 0) { throw 'Backend publish failed.' }
     $browser = Join-Path $root 'client/dist/client/browser'
     if (-not (Test-Path -LiteralPath "$browser/index.html")) { throw 'Angular index.html was not produced.' }
@@ -45,7 +45,7 @@ try {
     foreach ($name in @('platform-contract.md', 'platform-verification.md', 'quality-platform.md', 'connectors-platform.md', 'operations-platform.md', 'extraction-platform.md', 'flows-platform.md')) {
         Copy-Item -LiteralPath "$root/docs/$name" -Destination (Join-Path $stage $name)
     }
-    foreach ($file in @('PaperworkClassifier.Api.dll', 'PaperworkClassifier.Api.runtimeconfig.json', 'wwwroot/index.html', 'wwwroot/assets/pdf.worker.min.mjs')) {
+    foreach ($file in @('paprika.Api.dll', 'paprika.Api.runtimeconfig.json', 'wwwroot/index.html', 'wwwroot/assets/pdf.worker.min.mjs')) {
         if (-not (Test-Path -LiteralPath (Join-Path $stage $file))) { throw "Package is missing $file" }
     }
     $null = New-Item -ItemType Directory -Path (Split-Path $output -Parent) -Force

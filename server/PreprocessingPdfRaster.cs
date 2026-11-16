@@ -3,7 +3,7 @@ using Docnet.Core;
 using Docnet.Core.Models;
 using SkiaSharp;
 
-namespace PaperworkClassifier;
+namespace paprika;
 
 public static class PreprocessingPdfRaster
 {

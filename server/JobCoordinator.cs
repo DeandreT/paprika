@@ -1,6 +1,6 @@
 using System.Collections.Concurrent;
 
-namespace PaperworkClassifier;
+namespace paprika;
 
 public sealed class JobCoordinator
 {

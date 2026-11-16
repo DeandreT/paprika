@@ -8,10 +8,10 @@ using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Data.Sqlite;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
-using PaperworkClassifier;
+using paprika;
 using Xunit;
 
-namespace PaperworkClassifier.Tests;
+namespace paprika.Tests;
 
 public sealed class PlatformReleaseIntegrationTests
 {
@@ -273,11 +273,11 @@ public sealed class PlatformReleaseIntegrationTests
                     config.AddInMemoryCollection(
                         new Dictionary<string, string?>
                         {
-                            ["Paperwork:DataDirectory"] = Path.Combine(Root, "data"),
-                            ["Paperwork:Mode"] = "simulation",
-                            ["Paperwork:Operations:Mode"] = "local",
-                            ["Paperwork:AzureKey"] = PrivateMarker,
-                            ["Paperwork:JevApiKey"] = PrivateMarker,
+                            ["paprika:DataDirectory"] = Path.Combine(Root, "data"),
+                            ["paprika:Mode"] = "simulation",
+                            ["paprika:Operations:Mode"] = "local",
+                            ["paprika:AzureKey"] = PrivateMarker,
+                            ["paprika:JevApiKey"] = PrivateMarker,
                         }
                     )
             );
@@ -285,7 +285,7 @@ public sealed class PlatformReleaseIntegrationTests
         public HttpClient Client()
         {
             var client = CreateClient();
-            client.DefaultRequestHeaders.Add("X-PaperworkClassifier", "1");
+            client.DefaultRequestHeaders.Add("X-paprika", "1");
             return client;
         }
 

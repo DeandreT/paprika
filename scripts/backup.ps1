@@ -1,11 +1,18 @@
 param(
-    [string]$DataDirectory = (Join-Path $env:LOCALAPPDATA 'PaperworkClassifier'),
+    [string]$DataDirectory = $env:paprika__DataDirectory,
     [Parameter(Mandatory)][string]$OutputDirectory
 )
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
+if (-not $DataDirectory) {
+    $DataDirectory = Join-Path $env:LOCALAPPDATA 'paprika'
+    $legacyDirectory = Join-Path $env:LOCALAPPDATA 'PaperworkClassifier'
+    if (-not (Test-Path -LiteralPath "$DataDirectory/jobs.sqlite" -PathType Leaf) -and (Test-Path -LiteralPath "$legacyDirectory/jobs.sqlite" -PathType Leaf)) {
+        $DataDirectory = $legacyDirectory
+    }
+}
 if (Get-NetTCPConnection -LocalPort 5080 -State Listen -ErrorAction SilentlyContinue) {
-    throw 'Stop PaperworkClassifier before making an offline backup.'
+    throw 'Stop paprika before making an offline backup.'
 }
 $source = (Resolve-Path -LiteralPath $DataDirectory).Path.TrimEnd('\', '/')
 $target = [IO.Path]::GetFullPath($OutputDirectory).TrimEnd('\', '/')
@@ -26,7 +33,7 @@ foreach ($oneDrive in @($env:OneDrive, $env:OneDriveCommercial, $env:OneDriveCon
     }
 }
 if (Test-Path -LiteralPath $target) { throw 'Backup destination already exists; choose a new folder.' }
-if (-not (Test-Path -LiteralPath "$source/jobs.sqlite")) { throw 'The source is not a PaperworkClassifier data directory.' }
+if (-not (Test-Path -LiteralPath "$source/jobs.sqlite")) { throw 'The source is not a paprika data directory.' }
 if ((Get-Item -LiteralPath $source).Attributes -band [IO.FileAttributes]::ReparsePoint) { throw 'Reparse-point data roots are not supported.' }
 $entries = @(Get-ChildItem -LiteralPath $source -Recurse -Force)
 if ($entries | Where-Object { $_.Attributes -band [IO.FileAttributes]::ReparsePoint }) { throw 'Backups cannot follow reparse points.' }

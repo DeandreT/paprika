@@ -6,11 +6,11 @@ using Microsoft.Data.Sqlite;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
-using PaperworkClassifier;
+using paprika;
 using Wolverine;
 using Xunit;
 
-namespace PaperworkClassifier.Tests;
+namespace paprika.Tests;
 
 public sealed class OperationsContinuationMessagingTests
 {
@@ -56,7 +56,7 @@ public sealed class OperationsContinuationMessagingTests
     {
         await using var factory = new Factory();
         using var client = factory.CreateClient();
-        client.DefaultRequestHeaders.Add("X-PaperworkClassifier", "1");
+        client.DefaultRequestHeaders.Add("X-paprika", "1");
         var store = factory.Services.GetRequiredService<Store>();
         var packet = ReviewPacket(store);
         var response = await client.PutAsJsonAsync(
@@ -113,7 +113,7 @@ public sealed class OperationsContinuationMessagingTests
     {
         await using var factory = new Factory();
         using var client = factory.CreateClient();
-        client.DefaultRequestHeaders.Add("X-PaperworkClassifier", "1");
+        client.DefaultRequestHeaders.Add("X-paprika", "1");
         var store = factory.Services.GetRequiredService<Store>();
         var packet = ReviewPacket(store);
         var obstacle = Path.Combine(store.Root, "outputs");
@@ -194,7 +194,7 @@ public sealed class OperationsContinuationMessagingTests
     {
         await using var factory = new Factory();
         using var client = factory.CreateClient();
-        client.DefaultRequestHeaders.Add("X-PaperworkClassifier", "1");
+        client.DefaultRequestHeaders.Add("X-paprika", "1");
         var store = factory.Services.GetRequiredService<Store>();
         var packet = ReviewPacket(store);
         File.WriteAllText(Path.Combine(store.Root, "outputs"), "synthetic obstacle");
@@ -238,9 +238,9 @@ public sealed class OperationsContinuationMessagingTests
                 .AddInMemoryCollection(
                     new Dictionary<string, string?>
                     {
-                        ["Paperwork:DataDirectory"] = root,
-                        ["Paperwork:Operations:Retention:ExecutionEnabled"] = "true",
-                        ["Paperwork:Operations:Retention:PermanentDeletionEnabled"] = "true",
+                        ["paprika:DataDirectory"] = root,
+                        ["paprika:Operations:Retention:ExecutionEnabled"] = "true",
+                        ["paprika:Operations:Retention:PermanentDeletionEnabled"] = "true",
                     }
                 )
                 .Build();
@@ -296,7 +296,7 @@ public sealed class OperationsContinuationMessagingTests
             .AddInMemoryCollection(
                 new Dictionary<string, string?>
                 {
-                    ["Paperwork:Operations:Retention:ExecutionEnabled"] = "true",
+                    ["paprika:Operations:Retention:ExecutionEnabled"] = "true",
                 }
             )
             .Build();
@@ -327,7 +327,7 @@ public sealed class OperationsContinuationMessagingTests
             builder.ConfigureAppConfiguration(
                 (_, config) =>
                     config.AddInMemoryCollection(
-                        new Dictionary<string, string?> { ["Paperwork:DataDirectory"] = root }
+                        new Dictionary<string, string?> { ["paprika:DataDirectory"] = root }
                     )
             );
             builder.ConfigureServices(services =>

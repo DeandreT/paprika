@@ -1,10 +1,14 @@
-# PaperworkClassifier
+# paprika
 
 Local-first document-processing platform with versioned classification workflows. Upload a mixed packet, classify and extract documents, verify references, review corrections, and export approved results with source-page and workflow provenance.
+
+Upgrading from PaperworkClassifier? See [rename and upgrade notes](docs/renaming.md) for configuration changes, existing data, request headers and sign-in.
 
 ## Run offline
 
 Prerequisites: **.NET 10 SDK**, **Node.js 22.22.3+ in the 22.x line** (22.23.4 used here), npm, and PowerShell 7. The frontend uses Angular 22.
+
+On Arch Linux, install `aspnet-runtime` and `aspnet-targeting-pack` alongside `dotnet-sdk`. The API includes native image-processing assets for Windows and Linux.
 
 From this folder:
 
@@ -23,7 +27,7 @@ The default **Simulation** mode processes uploads entirely locally: it extracts 
 API:
 
 ```powershell
-dotnet run --project server/PaperworkClassifier.Api.csproj --no-launch-profile --urls http://127.0.0.1:5080
+dotnet run --project server/paprika.Api.csproj --no-launch-profile --urls http://127.0.0.1:5080
 ```
 
 Angular (from `client`):
@@ -97,20 +101,20 @@ The backend reads these configuration names (environment variables use `__`):
 
 | Variable | Purpose |
 | --- | --- |
-| `Paperwork__Mode` | Seeds a new catalog's default mode: `Simulation` or `Live`; legacy `Demo` seeds Simulation while the demo endpoint remains separate |
-| `Paperwork__AzureEndpoint` | HTTPS endpoint of your Azure Document Intelligence resource |
-| `Paperwork__AzureKey` | Azure Document Intelligence key; backend only |
-| `Paperwork__JevApiKey` | TypeSafe API key; backend only |
-| `Paperwork__JevModel` | Model/alias available to your account; default `jev-latest` |
-| `Paperwork__DataDirectory` | Optional local data directory for SQLite, source files, and artifacts |
+| `paprika__Mode` | Seeds a new catalog's default mode: `Simulation` or `Live`; legacy `Demo` seeds Simulation while the demo endpoint remains separate |
+| `paprika__AzureEndpoint` | HTTPS endpoint of your Azure Document Intelligence resource |
+| `paprika__AzureKey` | Azure Document Intelligence key; backend only |
+| `paprika__JevApiKey` | TypeSafe API key; backend only |
+| `paprika__JevModel` | Model/alias available to your account; default `jev-latest` |
+| `paprika__DataDirectory` | Optional local data directory for SQLite, source files, and artifacts |
 
 
 
 
 
 ```powershell
-$env:Paperwork__Mode = 'Live'
-$env:Paperwork__AzureEndpoint = 'https://YOUR-RESOURCE.cognitiveservices.azure.com'
+$env:paprika__Mode = 'Live'
+$env:paprika__AzureEndpoint = 'https://YOUR-RESOURCE.cognitiveservices.azure.com'
 ```
 
 Start Angular separately as above. Restart the API after changing configuration. The UI shows provider readiness as booleans; configuration presence does not prove successful service authentication.
@@ -121,12 +125,12 @@ Live input is sent to Azure for OCR, and OCR text/context is sent to TypeSafe fo
 
 ### OpenAI instead of Azure/Jev
 
-With only `OPENAI_API_KEY` (or `Paperwork__OpenAiApiKey`) configured, Live mode uses OpenAI for both steps:
+With only `OPENAI_API_KEY` (or `paprika__OpenAiApiKey`) configured, Live mode uses OpenAI for both steps:
 
 - **Reading pages:** embedded PDF text is used as-is; scanned and image pages are transcribed by `gpt-6-luna` vision through the Responses API (`store: false`).
 - **Classification:** the OpenAI [Decisions API](https://developers.openai.com/api/docs/guides/decisions) answers a document-type choice and a starts-a-new-document predicate with probabilities, like Jev.
 
-Azure OCR and Jev still take precedence when their keys are set. Optional settings: `Paperwork__OpenAiModel` (classifier, default `gpt-6-luna`, the only Decisions model), `Paperwork__OpenAiReadModel` (default `gpt-6-luna`), `Paperwork__OpenAiBaseUrl`. Live workflows must use the model the server reports as `liveModel`.
+Azure OCR and Jev still take precedence when their keys are set. Optional settings: `paprika__OpenAiModel` (classifier, default `gpt-6-luna`, the only Decisions model), `paprika__OpenAiReadModel` (default `gpt-6-luna`), `paprika__OpenAiBaseUrl`. Live workflows must use the model the server reports as `liveModel`.
 
 ```powershell
 ```
@@ -139,7 +143,7 @@ The API generates an **OpenAPI 3.0** document directly from its routes and publi
 
 **http://127.0.0.1:5080/openapi/v1.json**
 
-Import that URL into an OpenAPI-compatible client or client generator. It covers the registered workflow, processing, review, platform and delivery routes. It includes named JSON schemas, error/status responses, binary response types, optional upload `Idempotency-Key`, and the required `X-PaperworkClassifier: 1` mutation header (a request marker, not authentication). Shared mode additionally requires a configured authenticated identity.
+Import that URL into an OpenAPI-compatible client or client generator. It covers the registered workflow, processing, review, platform and delivery routes. It includes named JSON schemas, error/status responses, binary response types, optional upload `Idempotency-Key`, and the required `X-paprika: 1` mutation header (a request marker, not authentication). The legacy `X-PaperworkClassifier: 1` header remains accepted for compatibility. Shared mode additionally requires a configured authenticated identity.
 
 Upload uses repeated `files` fields in `multipart/form-data`. Processing returns the queued packet immediately; poll its status. Review requires the current revision and complete page membership. A `409` indicates stale state or an operation unavailable in the packet's current state. Editing an approved packet clears approval; approve the resulting revision separately.
 
@@ -155,7 +159,7 @@ The document is generated rather than hand-maintained. Backend tests compare it 
 - `docs/workflows.md`: reusable document definitions, releases, workflow configuration and draft previews.
 - `scripts/dev.ps1`: local two-process launcher.
 
-Processing runs locally in one backend process. Source files and state default to `%LOCALAPPDATA%/PaperworkClassifier`, outside the source tree. Keep high-churn execution data outside OneDrive. Retention supports explicit archival and dependency-checked physical deletion; inspect the preview before requesting deletion.
+Processing runs locally in one backend process. Source files and state default to `%LOCALAPPDATA%/paprika`, outside the source tree. An existing legacy database is reused when the new default has no database; an explicit `paprika__DataDirectory` takes precedence. See [data-directory selection](docs/renaming.md#existing-data). Keep high-churn execution data outside OneDrive. Retention supports explicit archival and dependency-checked physical deletion; inspect the preview before requesting deletion.
 
 **WolverineFx** uses SQLite-backed durable messaging for processing and delivery. Application state and message handoff share a transaction; separate queues control concurrency and preserve pending retries across restarts. No external broker is required. See `docs/wolverine.md` for transaction, migration, retry and replay details.
 
@@ -193,7 +197,7 @@ npx playwright install chromium
 npm test
 ```
 
-These tests create synthetic packets in the running API's data directory. Use an isolated `Paperwork__DataDirectory` for test runs if desired. Synthetic and mocked-provider checks do not replace a live end-to-end service test and held-out real-paperwork evaluation.
+These tests create synthetic packets in the running API's data directory. Use an isolated `paprika__DataDirectory` for test runs if desired. Synthetic and mocked-provider checks do not replace a live end-to-end service test and held-out real-paperwork evaluation.
 
 The platform release passed **226 backend tests**, **14 evaluator/recovery-evidence tests**, and **30 packaged browser/API tests**, plus formatting, Angular build, prior-workflow migration, forced-stop recovery and the 10-case synthetic benchmark. Details and limits: `docs/platform-verification.md`. The previous workflow release evidence remains in `docs/completion.md`.
 

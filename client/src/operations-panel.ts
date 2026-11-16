@@ -65,40 +65,40 @@ export class OperationsPanelComponent implements OnInit {
     const token = this.token;
     this.token = "";
     await this.run(async () => {
-      this.session.set(await firstValueFrom(this.http.post<Session>(`${this.base}/session`, {}, { headers: { "X-PaperworkClassifier": "1", Authorization: `Bearer ${token}` } })));
+      this.session.set(await firstValueFrom(this.http.post<Session>(`${this.base}/session`, {}, { headers: { "X-paprika": "1", Authorization: `Bearer ${token}` } })));
       await this.load(); this.refreshed.emit();
     });
   }
   async signOut(): Promise<void> {
     await this.run(async () => {
-      await firstValueFrom(this.http.delete(`${this.base}/session`, { headers: { "X-PaperworkClassifier": "1" } }));
+      await firstValueFrom(this.http.delete(`${this.base}/session`, { headers: { "X-paprika": "1" } }));
       this.session.set(null); this.tasks.set([]); this.stats.set(null); this.retention.set(null); this.plan.set(null); this.refreshed.emit();
     });
     await this.refresh();
   }
   async change(task: ReviewTask, action: "claim" | "renew" | "release"): Promise<void> {
     await this.run(async () => {
-      await firstValueFrom(this.http.post(`${this.base}/tasks/${encodeURIComponent(task.id)}/${action}`, { revision: task.revision, leaseSeconds: this.leaseSeconds }, { headers: { "X-PaperworkClassifier": "1" } }));
+      await firstValueFrom(this.http.post(`${this.base}/tasks/${encodeURIComponent(task.id)}/${action}`, { revision: task.revision, leaseSeconds: this.leaseSeconds }, { headers: { "X-paprika": "1" } }));
       await this.load(); this.refreshed.emit();
     });
   }
   async openReview(): Promise<void> {
     await this.run(async () => {
-      await firstValueFrom(this.http.post(`${this.base}/tasks/open`, { packetId: this.packetId, revision: this.revision }, { headers: { "X-PaperworkClassifier": "1" } }));
+      await firstValueFrom(this.http.post(`${this.base}/tasks/open`, { packetId: this.packetId, revision: this.revision }, { headers: { "X-paprika": "1" } }));
       await this.load(); this.refreshed.emit();
     });
   }
   async schedule(task: ReviewTask): Promise<void> {
     await this.run(async () => {
       if (!this.scheduleDue) throw new Error("Choose a due date first.");
-      await firstValueFrom(this.http.put(`${this.base}/tasks/${encodeURIComponent(task.id)}/schedule`, { revision: task.revision, priority: this.schedulePriority, dueAt: new Date(this.scheduleDue).toISOString() }, { headers: { "X-PaperworkClassifier": "1" } }));
+      await firstValueFrom(this.http.put(`${this.base}/tasks/${encodeURIComponent(task.id)}/schedule`, { revision: task.revision, priority: this.schedulePriority, dueAt: new Date(this.scheduleDue).toISOString() }, { headers: { "X-paprika": "1" } }));
       await this.load();
     });
   }
   async archive(candidate: Candidate): Promise<void> {
     if (!this.confirmArchive) return;
     await this.run(async () => {
-      await firstValueFrom(this.http.post(`${this.base}/retention/execute`, { packetId: candidate.packetId, revision: candidate.revision, confirmArchive: true }, { headers: { "X-PaperworkClassifier": "1" } }));
+      await firstValueFrom(this.http.post(`${this.base}/retention/execute`, { packetId: candidate.packetId, revision: candidate.revision, confirmArchive: true }, { headers: { "X-paprika": "1" } }));
       this.confirmArchive = false; await this.load(); this.refreshed.emit();
     });
   }
@@ -108,7 +108,7 @@ export class OperationsPanelComponent implements OnInit {
   async purge(candidate: Candidate): Promise<void> {
     if (!this.confirmPurge || !this.plan()?.eligible || this.plan()?.packetId !== candidate.packetId) return;
     await this.run(async () => {
-      await firstValueFrom(this.http.post(`${this.base}/retention/purge`, { packetId: candidate.packetId, revision: candidate.revision, confirmPermanentDeletion: true }, { headers: { "X-PaperworkClassifier": "1" } }));
+      await firstValueFrom(this.http.post(`${this.base}/retention/purge`, { packetId: candidate.packetId, revision: candidate.revision, confirmPermanentDeletion: true }, { headers: { "X-paprika": "1" } }));
       this.confirmPurge = false; this.plan.set(null); await this.load(); this.refreshed.emit();
     });
   }

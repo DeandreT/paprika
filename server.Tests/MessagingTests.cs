@@ -6,7 +6,7 @@ using Microsoft.Extensions.Hosting;
 using Wolverine;
 using Xunit;
 
-namespace PaperworkClassifier.Tests;
+namespace paprika.Tests;
 
 public sealed class MessagingTests : IDisposable
 {
@@ -22,10 +22,10 @@ public sealed class MessagingTests : IDisposable
             .AddInMemoryCollection(
                 new Dictionary<string, string?>
                 {
-                    ["Paperwork:DataDirectory"] = root,
-                    ["Paperwork:AzureEndpoint"] = "https://ocr.example.test",
-                    ["Paperwork:AzureKey"] = "test",
-                    ["Paperwork:JevApiKey"] = "test",
+                    ["paprika:DataDirectory"] = root,
+                    ["paprika:AzureEndpoint"] = "https://ocr.example.test",
+                    ["paprika:AzureKey"] = "test",
+                    ["paprika:JevApiKey"] = "test",
                 }
             )
             .Build();

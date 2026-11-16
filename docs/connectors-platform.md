@@ -45,11 +45,11 @@ Manually reviewed synthetic evidence can support local review exports with expli
 
 ## Server configuration
 
-Configure `Paperwork:Connectors:<connector-id>` using the server configuration provider. Configure credentials through approved process-environment/secret tooling; do not put them in a workflow, browser form, repository or investigation notes. Example **non-secret** settings:
+Configure `paprika:Connectors:<connector-id>` using the server configuration provider. Configure credentials through approved process-environment/secret tooling; do not put them in a workflow, browser form, repository or investigation notes. Example **non-secret** settings:
 
 ```json
 {
-  "Paperwork": {
+  "paprika": {
     "Connectors": {
       "approved-inbox": { "Kind": "folderIntake", "Root": "C:/approved-paperwork/inbox" },
       "approved-outbox": { "Kind": "folderExport", "Root": "C:/approved-paperwork/outbox" },

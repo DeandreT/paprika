@@ -6,7 +6,7 @@ using PdfSharp.Drawing;
 using PdfSharp.Pdf;
 using PdfSharp.Pdf.IO;
 
-namespace PaperworkClassifier;
+namespace paprika;
 
 public static class Pdfs
 {

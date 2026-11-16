@@ -7,10 +7,10 @@ using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Data.Sqlite;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
-using PaperworkClassifier;
+using paprika;
 using Xunit;
 
-namespace PaperworkClassifier.Tests;
+namespace paprika.Tests;
 
 public sealed class PlatformQualityIntegrationTests
 {
@@ -95,7 +95,7 @@ public sealed class PlatformQualityIntegrationTests
         var model = await TrainFixture(client, true);
         var workflow = await CreateWorkflow(client, model.Id, true);
         app.Services.GetRequiredService<IConfiguration>()[
-            "Paperwork:Operations:Users:2:Workflows:0"
+            "paprika:Operations:Users:2:Workflows:0"
         ] = workflow.Id;
         using var scopedReviewer = app.Client("reviewer");
         var packet = await app.Upload(
@@ -474,18 +474,18 @@ public sealed class PlatformQualityIntegrationTests
                     config.AddInMemoryCollection(
                         new Dictionary<string, string?>
                         {
-                            ["Paperwork:DataDirectory"] = Root,
-                            ["Paperwork:Mode"] = "simulation",
-                            ["Paperwork:Operations:Mode"] = "shared",
-                            ["Paperwork:Operations:Users:0:Name"] = "independent",
-                            ["Paperwork:Operations:Users:0:Roles:0"] = "administrator",
-                            ["Paperwork:Operations:Users:0:Token"] = Token("independent"),
-                            ["Paperwork:Operations:Users:1:Name"] = "automation",
-                            ["Paperwork:Operations:Users:1:Roles:0"] = "administrator",
-                            ["Paperwork:Operations:Users:1:Token"] = Token("automation"),
-                            ["Paperwork:Operations:Users:2:Name"] = "reviewer",
-                            ["Paperwork:Operations:Users:2:Roles:0"] = "reviewer",
-                            ["Paperwork:Operations:Users:2:Token"] = Token("reviewer"),
+                            ["paprika:DataDirectory"] = Root,
+                            ["paprika:Mode"] = "simulation",
+                            ["paprika:Operations:Mode"] = "shared",
+                            ["paprika:Operations:Users:0:Name"] = "independent",
+                            ["paprika:Operations:Users:0:Roles:0"] = "administrator",
+                            ["paprika:Operations:Users:0:Token"] = Token("independent"),
+                            ["paprika:Operations:Users:1:Name"] = "automation",
+                            ["paprika:Operations:Users:1:Roles:0"] = "administrator",
+                            ["paprika:Operations:Users:1:Token"] = Token("automation"),
+                            ["paprika:Operations:Users:2:Name"] = "reviewer",
+                            ["paprika:Operations:Users:2:Roles:0"] = "reviewer",
+                            ["paprika:Operations:Users:2:Token"] = Token("reviewer"),
                         }
                     )
             );
@@ -496,7 +496,7 @@ public sealed class PlatformQualityIntegrationTests
         public HttpClient Client(string actor = "independent")
         {
             var client = CreateClient();
-            client.DefaultRequestHeaders.Add("X-PaperworkClassifier", "1");
+            client.DefaultRequestHeaders.Add("X-paprika", "1");
             client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue(
                 "Bearer",
                 Token(actor)

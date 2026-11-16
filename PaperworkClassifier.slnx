@@ -1,4 +1,0 @@
-<Solution>
-    <Project Path="server/PaperworkClassifier.Api.csproj" />
-    <Project Path="server.Tests/PaperworkClassifier.Tests.csproj" />
-</Solution>

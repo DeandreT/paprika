@@ -4,7 +4,7 @@ using Wolverine.Persistence.Durability;
 using Wolverine.Persistence.Durability.DeadLetterManagement;
 using Wolverine.Runtime;
 
-namespace PaperworkClassifier;
+namespace paprika;
 
 public sealed record QueueSummary(string Name, int Pending);
 

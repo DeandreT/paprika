@@ -3,7 +3,7 @@ using System.Security.Cryptography;
 using System.Text.Json;
 using Microsoft.Data.Sqlite;
 
-namespace PaperworkClassifier;
+namespace paprika;
 
 public sealed class ConnectorDeliveryStore
 {

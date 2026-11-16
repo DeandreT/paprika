@@ -26,7 +26,7 @@ Failure finalization is atomic as well: deleting the pending envelope and writin
 
 `GET /api/messaging` reports mode `durable-local`, processing/delivery/continuation queue counts and up to 100 eligible current-generation dead letters. Counts include ready, in-flight and scheduled inbox rows, excluding handled deduplication receipts. Pagination skips claimed/superseded letters before applying the result limit, then reconciles their deferred archival through Wolverine; stale entries cannot hide current failures. Each dead letter exposes its message ID/type, related packet/delivery IDs, failure timestamp and a safe reason. Continuation entries additionally identify the approved packet revision. Raw envelopes, document content, provider responses and exception stacks are not exposed.
 
-`POST /api/messaging/deadletters/{id}/replay` requires `X-PaperworkClassifier: 1`. A successful response reports `queued`; missing entries return 404 and stale/in-flight/terminal conflicts return 409. The Angular operations panel provides refresh and replay controls. Its counts are snapshots, not a promise that work cannot change immediately afterward.
+`POST /api/messaging/deadletters/{id}/replay` requires `X-paprika: 1`. A successful response reports `queued`; missing entries return 404 and stale/in-flight/terminal conflicts return 409. The Angular operations panel provides refresh and replay controls. Its counts are snapshots, not a promise that work cannot change immediately afterward.
 
 ## Existing data and recovery
 

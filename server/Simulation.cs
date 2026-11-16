@@ -1,7 +1,7 @@
 using System.Text.RegularExpressions;
 using UglyToad.PdfPig.DocumentLayoutAnalysis.TextExtractor;
 
-namespace PaperworkClassifier;
+namespace paprika;
 
 public static class Simulation
 {

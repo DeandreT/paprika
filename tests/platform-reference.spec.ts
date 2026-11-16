@@ -9,7 +9,7 @@ test('real UI dataset and PDF reference lookup survive approval but a corrected 
   const datasetId = `reference-ui-${suffix}`;
   const reference = `REF-${suffix.slice(0, 20)}`;
   const name = `ARTIFICIAL-reference-${suffix}.pdf`;
-  const headers = { 'X-PaperworkClassifier': '1' };
+  const headers = { 'X-paprika': '1' };
 
   await page.goto('/');
   await menuAction(page, 'classification-advanced');

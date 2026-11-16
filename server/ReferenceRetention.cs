@@ -1,6 +1,6 @@
 using Microsoft.Data.Sqlite;
 
-namespace PaperworkClassifier;
+namespace paprika;
 
 public sealed class ReferenceRetentionParticipant : IOperationsRetentionParticipant
 {

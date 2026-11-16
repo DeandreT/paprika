@@ -86,7 +86,7 @@ export class QualityPanelComponent implements OnChanges {
   @Input() revision = 0;
   @Output() refreshed = new EventEmitter<void>();
   private http = inject(HttpClient);
-  private headers = { "X-PaperworkClassifier": "1" };
+  private headers = { "X-paprika": "1" };
   private expanded = false;
   quality = signal<Quality | null>(null); models = signal<Model[]>([]); drafts = signal<Draft[]>([]); adminAvailable = signal(true);
   busy = signal(false); error = signal(""); notice = signal(""); snapshot = signal<unknown>(null);

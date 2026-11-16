@@ -3,7 +3,7 @@ using System.Text;
 using System.Text.Json;
 using SkiaSharp;
 
-namespace PaperworkClassifier;
+namespace paprika;
 
 public sealed record OutputPolicy(string Format = "text-json", string[]? RedactValues = null);
 

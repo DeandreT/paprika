@@ -3,31 +3,31 @@ using System.Net.Http.Headers;
 using System.Text;
 using System.Text.Json;
 
-namespace PaperworkClassifier;
+namespace paprika;
 
 public sealed class Settings(IConfiguration config)
 {
     public string Mode =>
-        config["Paperwork:Mode"]?.ToLowerInvariant() switch
+        config["paprika:Mode"]?.ToLowerInvariant() switch
         {
             "live" => "live",
             "demo" => "demo",
             _ => "simulation",
         };
-    public string Endpoint => (config["Paperwork:AzureEndpoint"] ?? "").TrimEnd('/');
-    public string AzureKey => config["Paperwork:AzureKey"] ?? "";
-    public string JevKey => config["Paperwork:JevApiKey"] ?? "";
+    public string Endpoint => (config["paprika:AzureEndpoint"] ?? "").TrimEnd('/');
+    public string AzureKey => config["paprika:AzureKey"] ?? "";
+    public string JevKey => config["paprika:JevApiKey"] ?? "";
 
     // OPENAI_API_KEY is injected by with-local-secrets; Jev and Azure take precedence when configured.
-    public string OpenAiKey => config["Paperwork:OpenAiApiKey"] ?? config["OPENAI_API_KEY"] ?? "";
+    public string OpenAiKey => config["paprika:OpenAiApiKey"] ?? config["OPENAI_API_KEY"] ?? "";
     public bool OpenAiConfigured => !string.IsNullOrWhiteSpace(OpenAiKey);
     public bool UseOpenAiClassifier => string.IsNullOrWhiteSpace(JevKey) && OpenAiConfigured;
     public string Model =>
-        config["Paperwork:JevModel"]
-        ?? (UseOpenAiClassifier ? config["Paperwork:OpenAiModel"] ?? "gpt-6-luna" : "jev-latest");
+        config["paprika:JevModel"]
+        ?? (UseOpenAiClassifier ? config["paprika:OpenAiModel"] ?? "gpt-6-luna" : "jev-latest");
     public string OpenAiBaseUrl =>
-        (config["Paperwork:OpenAiBaseUrl"] ?? "https://api.openai.com/v1").TrimEnd('/') + "/";
-    public string OpenAiReadModel => config["Paperwork:OpenAiReadModel"] ?? "gpt-6-luna";
+        (config["paprika:OpenAiBaseUrl"] ?? "https://api.openai.com/v1").TrimEnd('/') + "/";
+    public string OpenAiReadModel => config["paprika:OpenAiReadModel"] ?? "gpt-6-luna";
     public bool AzureOcrConfigured =>
         Uri.TryCreate(Endpoint, UriKind.Absolute, out var u)
         && u.Scheme == "https"

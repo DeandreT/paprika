@@ -2,7 +2,7 @@ import { test, expect } from '@playwright/test';
 import { menuAction } from './navigation';
 import { deflateSync } from 'node:zlib';
 
-const headers = { 'X-PaperworkClassifier': '1' };
+const headers = { 'X-paprika': '1' };
 
 function syntheticPng(): Buffer {
   function chunk(type: string, bytes: Buffer): Buffer {

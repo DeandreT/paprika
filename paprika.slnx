@@ -1,0 +1,4 @@
+<Solution>
+    <Project Path="server/paprika.Api.csproj" />
+    <Project Path="server.Tests/paprika.Tests.csproj" />
+</Solution>

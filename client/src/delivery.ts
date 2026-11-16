@@ -133,7 +133,7 @@ export class DeliveryComponent {
   dirty = input(false);
   busy = input(false);
   private http = inject(HttpClient);
-  private headers = new HttpHeaders({ "X-PaperworkClassifier": "1" });
+  private headers = new HttpHeaders({ "X-paprika": "1" });
   private timer?: ReturnType<typeof setTimeout>;
   private generation = 0;
   private disposed = false;

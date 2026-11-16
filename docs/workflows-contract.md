@@ -14,7 +14,7 @@ Shared implementation contract for the approved multiple-workflow release. JSON 
 - `WorkflowConfig`: `{ release: VersionRef, mode: 'simulation'|'live', providerProfile: 'default', model: string, instructions: string, defaultSplit: SplitPolicy, identifierKinds: string[], requiredIdentifierKinds: string[] }`. Supported identifier kinds: load, shipment, order, bol, receipt. Every run requires manual approval; required identifiers add review reasons.
 - `WorkflowStats`: `{ id, version, packets: number, review: number, failed: number, approved: number, corrections: number }` (test runs excluded).
 
-Mutations use the existing `X-PaperworkClassifier: 1` header and return the saved `CatalogEntry`, except setting the default returns `VersionRef`:
+Mutations use the `X-paprika: 1` header and return the saved `CatalogEntry`, except setting the default returns `VersionRef`:
 
 - `POST /api/workflows/catalog`: create draft; body `{ kind, id?, name, description, documentType?, release?, workflow? }`.
 - `PUT /api/workflows/catalog/{kind}/{id}/{version}`: edit draft; body is full entry including expected `revision`.

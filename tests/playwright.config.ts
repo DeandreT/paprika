@@ -7,7 +7,7 @@ export default defineConfig({
   expect: { timeout: 20_000 },
   workers: 1,
   use: {
-    baseURL: process.env['PAPERWORK_TEST_URL'] ?? 'http://127.0.0.1:4200',
+    baseURL: process.env['PAPRIKA_TEST_URL'] ?? 'http://127.0.0.1:4200',
     headless: true,
     screenshot: 'only-on-failure',
     trace: 'retain-on-failure',

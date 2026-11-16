@@ -9,7 +9,7 @@ using Wolverine.Persistence.Durability;
 using Wolverine.Runtime;
 using Xunit;
 
-namespace PaperworkClassifier.Tests;
+namespace paprika.Tests;
 
 public sealed class DurabilityTests : IDisposable
 {
@@ -22,7 +22,7 @@ public sealed class DurabilityTests : IDisposable
     private IConfiguration Config =>
         new ConfigurationBuilder()
             .AddInMemoryCollection(
-                new Dictionary<string, string?> { ["Paperwork:DataDirectory"] = root }
+                new Dictionary<string, string?> { ["paprika:DataDirectory"] = root }
             )
             .Build();
 
@@ -441,9 +441,9 @@ public sealed class DurabilityTests : IDisposable
             .AddInMemoryCollection(
                 new Dictionary<string, string?>
                 {
-                    ["Paperwork:AzureEndpoint"] = "https://ocr.example.test",
-                    ["Paperwork:AzureKey"] = "test",
-                    ["Paperwork:JevApiKey"] = "test",
+                    ["paprika:AzureEndpoint"] = "https://ocr.example.test",
+                    ["paprika:AzureKey"] = "test",
+                    ["paprika:JevApiKey"] = "test",
                 }
             )
             .Build();

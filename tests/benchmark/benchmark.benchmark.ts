@@ -6,9 +6,9 @@ import { tmpdir } from 'node:os';
 import { textPdf } from '../fixtures';
 import { cases } from '../benchmark-cases';
 
-const headers = { 'X-PaperworkClassifier': '1' };
+const headers = { 'X-paprika': '1' };
 const root = resolve(__dirname, '../..');
-const python = process.env['PAPERWORK_BENCHMARK_PYTHON'] ?? 'python';
+const python = process.env['PAPRIKA_BENCHMARK_PYTHON'] ?? 'python';
 
 function runPython(args: string[]) {
   const result = spawnSync(python, args, { encoding: 'utf8' });
@@ -18,12 +18,12 @@ function runPython(args: string[]) {
 }
 
 test('frozen synthetic predictions, independent truth, and corrected exports', async ({ request }) => {
-  expect(process.env['PAPERWORK_BENCHMARK_ISOLATED'], 'Run through scripts/benchmark.ps1').toBe('1');
+  expect(process.env['PAPRIKA_BENCHMARK_ISOLATED'], 'Run through scripts/benchmark.ps1').toBe('1');
   const config = await (await request.get('/api/config')).json();
   expect(config.mode).toBe('simulation');
   expect(config.ocrConfigured).toBe(false);
   expect(config.classifierConfigured).toBe(false);
-  const scratch = mkdtempSync(join(process.env['LOCALAPPDATA'] ? join(process.env['LOCALAPPDATA'], 'Temp/opencode') : tmpdir(), 'paperwork-benchmark-evaluation-'));
+  const scratch = mkdtempSync(join(process.env['LOCALAPPDATA'] ? join(process.env['LOCALAPPDATA'], 'Temp/opencode') : tmpdir(), 'paprika-benchmark-evaluation-'));
   const results: any[] = [];
   try {
     for (const fixture of cases) {
@@ -107,7 +107,7 @@ test('frozen synthetic predictions, independent truth, and corrected exports', a
       invariants: { everyPagePreserved: true, noAutomaticApproval: true, providersConfigured: false, correctedManifestsMatchTruth: true, originalPredictionsUnchanged: true },
       cases: results,
     };
-    const output = process.env['PAPERWORK_BENCHMARK_REPORT'];
+    const output = process.env['PAPRIKA_BENCHMARK_REPORT'];
     expect(output, 'Harness must supply a new report path').toBeTruthy();
     writeFileSync(output!, JSON.stringify(report, null, 2) + '\n', { flag: 'wx' });
     console.log(JSON.stringify({ mode: report.mode, fixtures: report.fixtures, ...aggregate }, null, 2));

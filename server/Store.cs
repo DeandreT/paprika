@@ -1,7 +1,7 @@
 using System.Text.Json;
 using Microsoft.Data.Sqlite;
 
-namespace PaperworkClassifier;
+namespace paprika;
 
 public sealed class Store
 {
@@ -20,12 +20,7 @@ public sealed class Store
     {
         Configuration = config;
         Queue = queue;
-        Root = config["Paperwork:DataDirectory"]
-            ?? config["DataDirectory"]
-            ?? Path.Combine(
-                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-                "PaperworkClassifier"
-            );
+        Root = AppPaths.DataRoot(config);
         Directory.CreateDirectory(Root);
         using var c = Open();
         using var q = c.CreateCommand();

@@ -1,7 +1,7 @@
 using System.Diagnostics;
 using System.Text.Json;
 
-namespace PaperworkClassifier;
+namespace paprika;
 
 public sealed class PacketProcessor(
     Store store,
