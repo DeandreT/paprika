@@ -27,6 +27,7 @@ public sealed class ExtractionPlatformTests
         p.Documents[0].PageIds.Add(continuation.Id);
         source.PageCount = 2;
         Pdfs.Synthetic(db.Store.SourcePath(p, source), p.Pages.Select(page => page.Text).ToArray());
+        source.Sha256 = Pdfs.SourceHash(db.Store.SourcePath(p, source));
         var definition = new ExtractionDefinition(
             "required-split",
             1,
@@ -130,6 +131,7 @@ public sealed class ExtractionPlatformTests
         p.Pages.AddRange([second, third]);
         source.PageCount = 3;
         Pdfs.Synthetic(db.Store.SourcePath(p, source), p.Pages.Select(page => page.Text).ToArray());
+        source.Sha256 = Pdfs.SourceHash(db.Store.SourcePath(p, source));
         p.Documents.Add(new Document { Type = "invoice", PageIds = [second.Id, third.Id] });
         var definition = new ExtractionDefinition(
             "required-invoice",

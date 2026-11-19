@@ -2,6 +2,7 @@ using System.IO.Compression;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using Microsoft.Data.Sqlite;
 using PdfSharp.Drawing;
 using PdfSharp.Pdf;
 using PdfSharp.Pdf.IO;
@@ -55,11 +56,13 @@ public static class Pdfs
     {
         PlatformReleaseGate.Ensure(store, packet);
         using var output = new PdfDocument();
+        var paths = new Dictionary<string, string>();
         foreach (var id in doc.PageIds)
         {
             var page = packet.Pages.Single(p => p.Id == id);
             var source = packet.Sources.Single(s => s.Id == page.SourceId);
-            var path = store.SourcePath(packet, source);
+            if (!paths.TryGetValue(source.Id, out var path))
+                paths[source.Id] = path = store.SourcePath(packet, source);
             if (source.Extension == ".pdf")
             {
                 using var input = PdfReader.Open(path, PdfDocumentOpenMode.Import);
@@ -83,17 +86,69 @@ public static class Pdfs
     public static byte[] Export(Packet packet, Store store)
     {
         PlatformReleaseGate.Ensure(store, packet);
+        var evidence = packet.EffectiveWorkflow.Capabilities is null
+            ? null
+            : PlatformExportEvidence.Read(store, packet);
+        return BuildExport(packet, store, evidence, doc => RenderDocument(packet, doc, store));
+    }
+
+    internal static byte[] ApprovedDocument(
+        SqliteConnection db,
+        SqliteTransaction tx,
+        Packet packet,
+        Document doc,
+        Store store
+    )
+    {
+        var index = packet.Documents.IndexOf(doc);
+        if (index < 0)
+            throw new WorkflowException(404, "Document not found.");
+        return store.PacketArtifacts.ApprovedBytes(
+            db,
+            tx,
+            packet,
+            $"document-{index + 1:000}.pdf",
+            () => RenderDocument(packet, doc, store)
+        );
+    }
+
+    internal static byte[] ApprovedExport(
+        SqliteConnection db,
+        SqliteTransaction tx,
+        Packet packet,
+        Store store
+    )
+    {
+        PlatformReleaseGate.Ensure(db, tx, packet, new ConnectorCatalog(store.Configuration));
+        var evidence = packet.EffectiveWorkflow.Capabilities is null
+            ? null
+            : PlatformExportEvidence.Read(store, packet);
+        // Reference/extraction/flow evidence can change without a packet revision change.
+        // Older snapshots remain immutable, but can never substitute for current evidence.
+        var leaf = evidence is null
+            ? "packet.zip"
+            : $"packet-{ArtifactStorage.Hash(JsonSerializer.SerializeToUtf8Bytes(evidence, Contract.Json))}.zip";
+        return store.PacketArtifacts.ApprovedBytes(db, tx, packet, leaf, () =>
+            BuildExport(packet, store, evidence, doc =>
+                ApprovedDocument(db, tx, packet, doc, store)
+            )
+        );
+    }
+
+    private static byte[] BuildExport(
+        Packet packet,
+        Store store,
+        object? snapshotEvidence,
+        Func<Document, byte[]> renderDocument
+    )
+    {
         using var buffer = new MemoryStream();
         using (var zip = new ZipArchive(buffer, ZipArchiveMode.Create, true))
         {
-            if (packet.EffectiveWorkflow.Capabilities is not null)
+            if (snapshotEvidence is not null)
             {
                 using var evidence = zip.CreateEntry("platform.json").Open();
-                JsonSerializer.Serialize(
-                    evidence,
-                    PlatformExportEvidence.Read(store, packet),
-                    Contract.Json
-                );
+                JsonSerializer.Serialize(evidence, snapshotEvidence, Contract.Json);
             }
             int n = 0;
             var mappings = new List<object>();
@@ -102,7 +157,7 @@ public static class Pdfs
                 var name = $"{++n:000}-{doc.Type}.pdf";
                 using (var entry = zip.CreateEntry(name).Open())
                 {
-                    entry.Write(RenderDocument(packet, doc, store));
+                    entry.Write(renderDocument(doc));
                 }
                 mappings.Add(
                     new

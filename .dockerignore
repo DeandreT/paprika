@@ -1,5 +1,11 @@
 **
 !Dockerfile
+!COPYING
+!THIRD_PARTY_NOTICES.md
+!scripts/
+scripts/**
+!scripts/licensing/
+!scripts/licensing/**
 !client/
 client/**
 !client/package.json

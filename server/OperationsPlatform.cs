@@ -835,6 +835,8 @@ public sealed class OperationsPlatformStore
                 "packets",
                 "revisions",
                 "artifacts",
+                "artifact_location",
+                "export_receipts",
                 "intake_keys",
                 "queue_work",
                 "replayed_letters",
@@ -893,6 +895,10 @@ public sealed class OperationsPlatformStore
                 if (Convert.ToInt64(deliveries.ExecuteScalar()) > 0)
                     blockers.Add("Delivery snapshots/artifacts depend on this packet.");
             }
+        if (store.PacketArtifacts.Remote)
+            blockers.Add(
+                "Permanent deletion is disabled for Azure Blob storage; account retention, versions and legal holds require operator review."
+            );
         if (packet.Id.Length != 32 || packet.Id.Any(ch => !Uri.IsHexDigit(ch)))
             blockers.Add("Packet storage identifier is not safe for filesystem deletion.");
         var directory = Path.Combine(store.Root, packet.Id);
@@ -1093,7 +1099,7 @@ public sealed class OperationsPlatformStore
                 participant.Purge(c, deletion, latest);
         if (Directory.Exists(directory))
             Directory.Delete(directory, recursive: true);
-        foreach (var table in new[] { "artifacts", "intake_keys" })
+        foreach (var table in new[] { "artifacts", "intake_keys", "export_receipts" })
         {
             using var delete = Command(
                 c,

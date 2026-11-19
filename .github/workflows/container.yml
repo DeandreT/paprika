@@ -22,8 +22,8 @@ jobs:
             --label "org.opencontainers.image.source=$GITHUB_SERVER_URL/$GITHUB_REPOSITORY" \
             --label "org.opencontainers.image.revision=$(git rev-parse HEAD)" \
             --tag paprika:verified .
-      - name: Exercise the published runtime
-        run: bash scripts/check-container.sh paprika:verified
+      - name: Verify filesystem and Azure Blob storage across container replacement
+        run: python3 scripts/check-blob-storage.py paprika:verified
       - name: Save the verified image for publication
         if: github.event_name == 'release'
         run: docker save paprika:verified | gzip -1 > "$RUNNER_TEMP/paprika.tar.gz"

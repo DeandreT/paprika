@@ -1,6 +1,7 @@
 param(
     [string]$DataDirectory = $env:paprika__DataDirectory,
-    [Parameter(Mandatory)][string]$OutputDirectory
+    [Parameter(Mandatory)][string]$OutputDirectory,
+    [switch]$CoordinatedBlobBackup
 )
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
@@ -34,6 +35,9 @@ foreach ($oneDrive in @($env:OneDrive, $env:OneDriveCommercial, $env:OneDriveCon
 }
 if (Test-Path -LiteralPath $target) { throw 'Backup destination already exists; choose a new folder.' }
 if (-not (Test-Path -LiteralPath "$source/jobs.sqlite")) { throw 'The source is not a paprika data directory.' }
+if ((Test-Path -LiteralPath "$source/azure-artifacts.required") -and -not $CoordinatedBlobBackup) {
+    throw 'This data directory uses Azure Blob storage. Stop all writers, back up the dedicated private container and use -CoordinatedBlobBackup for the matching local copy. See docs/storage.md.'
+}
 if ((Get-Item -LiteralPath $source).Attributes -band [IO.FileAttributes]::ReparsePoint) { throw 'Reparse-point data roots are not supported.' }
 $entries = @(Get-ChildItem -LiteralPath $source -Recurse -Force)
 if ($entries | Where-Object { $_.Attributes -band [IO.FileAttributes]::ReparsePoint }) { throw 'Backups cannot follow reparse points.' }

@@ -160,7 +160,8 @@ def verify(api, packet_id, pdf):
     pages = ordered_pages(packet)
     source = pages[0]["sourceId"]
     digest = hashlib.sha256(pdf).hexdigest()
-    require(api.request(f"{path}/sources/{source}", media="application/pdf") == pdf, "Original PDF changed")
+    original = api.request(f"{path}/sources/{source}", media="application/pdf")
+    require(original == pdf, "Original PDF changed")
 
     raster = f"/api/preprocessing/{packet_id}"
     derivatives = api.json(raster)
@@ -171,8 +172,10 @@ def verify(api, packet_id, pdf):
             and struct.unpack(">II", png[16:24]) == (derivative["width"], derivative["height"])
             and 0 < derivative["width"] < derivative["height"], "Invalid rotated native PDF raster")
 
-    check_pdf(api.request(f"{path}/documents/{DOC_ID}/download", media="application/pdf"))
-    with zipfile.ZipFile(io.BytesIO(api.request(path + "/export", media="application/zip"))) as archive:
+    document = api.request(f"{path}/documents/{DOC_ID}/download", media="application/pdf")
+    check_pdf(document)
+    exported = api.request(path + "/export", media="application/zip")
+    with zipfile.ZipFile(io.BytesIO(exported)) as archive:
         manifest = json.loads(archive.read("manifest.json"))
         require(manifest["id"] == packet_id and manifest["revision"] == packet["revision"], "Wrong manifest revision")
         src, = manifest["sources"]
@@ -182,23 +185,27 @@ def verify(api, packet_id, pdf):
         require(doc["id"] == DOC_ID and doc["type"] == "invoice" and
                 [(p["sourceId"], p["pageNumber"], p["pageId"]) for p in doc["pages"]] ==
                 [(source, p["pageNumber"], p["id"]) for p in pages], "Wrong approved page order in manifest")
-        check_pdf(archive.read(doc["file"]))
+        require(archive.read(doc["file"]) == document, "ZIP member differs from the approved PDF")
+    hashes = {name: hashlib.sha256(data).hexdigest() for name, data in (
+        ("original", original), ("approvedZip", exported), ("individualPdf", document))}
+    return {"packet": packet_id, "source": source, "revision": packet["revision"], "sha256": hashes}
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("url", help="http://127.0.0.1:<testPort>")
     parser.add_argument("--verify-only", metavar="PACKET_ID", help="repeat read-only checks after a restart")
+    parser.add_argument("--report", action="store_true", help="print JSON with the packet ID and download hashes")
     args = parser.parse_args()
     try:
         api = Api(args.url)
         preflight(api)
         pdf = fixture()
         packet_id = args.verify_only if args.verify_only is not None else create(api, pdf)
-        verify(api, packet_id, pdf)
+        report = verify(api, packet_id, pdf)
     except (ValueError, OSError, KeyError, TypeError, struct.error, zipfile.BadZipFile, http.client.HTTPException) as exc:
         parser.exit(1, f"Container smoke failed: {exc}\n")
-    print(packet_id)
+    print(json.dumps(report) if args.report else packet_id)
 
 
 if __name__ == "__main__":

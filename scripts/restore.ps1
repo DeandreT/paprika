@@ -1,6 +1,7 @@
 param(
     [Parameter(Mandatory)][string]$BackupDirectory,
-    [Parameter(Mandatory)][string]$DataDirectory
+    [Parameter(Mandatory)][string]$DataDirectory,
+    [switch]$CoordinatedBlobRestore
 )
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
@@ -39,6 +40,9 @@ foreach ($entry in $manifest.files) {
     $verified += @{ path = $relative; source = $file; length = $entry.length; sha256 = $entry.sha256 }
 }
 if (-not $names.Contains('jobs.sqlite')) { throw 'Backup has no packet database.' }
+if ($names.Contains('azure-artifacts.required') -and -not $CoordinatedBlobRestore) {
+    throw 'This backup needs its matching private Blob container. Restore and verify the container, then use -CoordinatedBlobRestore. See docs/storage.md.'
+}
 $stage = $target + '.staging-' + [Guid]::NewGuid().ToString('N')
 try {
     $null = New-Item -ItemType Directory -Path $stage -Force

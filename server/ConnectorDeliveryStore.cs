@@ -80,7 +80,7 @@ public sealed class ConnectorDeliveryStore
                 )
             )
             .ToArray();
-        var payload = Pdfs.Export(packet, store);
+        var payload = Pdfs.ApprovedExport(c, tx, packet, store);
         if (referenceEvidence.Length > 0)
         {
             using var bytes = new MemoryStream();

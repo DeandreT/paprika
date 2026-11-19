@@ -166,15 +166,15 @@ api.MapGet(
         "/packets/{id}/documents/{documentId}/download",
         (string id, string documentId, Store store) =>
         {
-            return store.ApprovedOutput<IResult>(
+            return store.WithApprovedRevision<IResult>(
                 id,
-                packet =>
+                (db, tx, packet) =>
                 {
                     var document = packet.Documents.SingleOrDefault(d => d.Id == documentId);
                     if (document is null)
                         return Results.NotFound(new ApiError("Document not found."));
                     return Results.File(
-                        Pdfs.RenderDocument(packet, document, store),
+                        Pdfs.ApprovedDocument(db, tx, packet, document, store),
                         "application/pdf",
                         $"{document.Type}-{document.Id}-r{packet.Revision}.pdf"
                     );
@@ -252,7 +252,14 @@ api.MapPost("/packets", async (HttpRequest request, Settings settings, Store sto
                 if (extension is not (".pdf" or ".png" or ".jpg" or ".jpeg"))
                     throw new InvalidDataException();
                 var source = new Source { Name = name, Extension = extension };
-                await using (var output = File.Create(store.SourcePath(p, source)))
+                await using (
+                    var output = new FileStream(
+                        store.SourcePath(p, source),
+                        FileMode.CreateNew,
+                        FileAccess.Write,
+                        FileShare.None
+                    )
+                )
                 {
                     await f.CopyToAsync(output);
                 }
@@ -269,10 +276,12 @@ api.MapPost("/packets", async (HttpRequest request, Settings settings, Store sto
                 ? Results.Ok(Public(saved))
                 : Results.Json(new ApiError(accepted.Error!), statusCode: accepted.Code);
         }
-        catch
+        catch (Exception ex)
         {
             if (store.Get(p.Id) is null && Directory.Exists(Path.Combine(store.Root, p.Id)))
                 Directory.Delete(Path.Combine(store.Root, p.Id), true);
+            if (ex is WorkflowException)
+                throw;
             return Results.BadRequest(
                 new
                 {
@@ -332,7 +341,7 @@ api.MapGet("/packets/{id}/sources/{sourceId}", (string id, string sourceId, Stor
         return p is null || s is null
             ? Results.NotFound(new { error = "Source not found." })
             : Results.File(
-                store.SourcePath(p, s),
+                store.PacketArtifacts.OriginalBytes(p, s),
                 s.Extension == ".pdf" ? "application/pdf"
                     : s.Extension == ".png" ? "image/png"
                     : "image/jpeg",
@@ -355,9 +364,9 @@ api.MapGet("/packets/{id}/sources/{sourceId}", (string id, string sourceId, Stor
     .Produces<ApiError>(404);
 api.MapGet("/packets/{id}/export", (string id, Store store) =>
     {
-        return store.ApprovedOutput<IResult>(id, p =>
+        return store.WithApprovedRevision<IResult>(id, (db, tx, p) =>
             Results.File(
-                Pdfs.Export(p, store),
+                Pdfs.ApprovedExport(db, tx, p, store),
                 "application/zip",
                 $"packet-{p.Id}-r{p.Revision}.zip"
             )
