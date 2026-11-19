@@ -24,3 +24,7 @@ On later runs, omit `-Install`. Press **Ctrl+C** to stop both the API and the we
 ## Documentation
 
 [Browse the task guides](docs/README.md) to configure a workflow, connect live providers, use the API or operate an installation.
+
+## License
+
+Copyright © 2026 Deandre Thomas. Paprika's own code is licensed under the [GNU General Public License, version 3 only](COPYING) (`GPL-3.0-only`). Bundled dependencies retain their [own licenses](THIRD_PARTY_NOTICES.md).
