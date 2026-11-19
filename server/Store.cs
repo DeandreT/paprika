@@ -48,6 +48,30 @@ public sealed class Store
 
     public string SourcePath(Packet p, Source s) => Path.Combine(Root, p.Id, s.Id + s.Extension);
 
+    internal bool Ready()
+    {
+        try
+        {
+            using var connection = new SqliteConnection(
+                new SqliteConnectionStringBuilder
+                {
+                    DataSource = Path.Combine(Root, "jobs.sqlite"),
+                    Mode = SqliteOpenMode.ReadOnly,
+                    DefaultTimeout = 1,
+                }.ToString()
+            );
+            connection.Open();
+            using var query = connection.CreateCommand();
+            query.CommandText = "SELECT 1 FROM packets LIMIT 1";
+            query.ExecuteScalar(); // An initialized, empty packet table is ready too.
+            return true;
+        }
+        catch (SqliteException)
+        {
+            return false;
+        }
+    }
+
     public List<Packet> All()
     {
         using var c = Open();

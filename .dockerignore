@@ -1,6 +1,7 @@
 **
 !Dockerfile
 !client/
+client/**
 !client/package.json
 !client/package-lock.json
 !client/angular.json
@@ -8,5 +9,6 @@
 !client/src/
 !client/src/**
 !server/
+server/**
 !server/*.cs
 !server/paprika.Api.csproj

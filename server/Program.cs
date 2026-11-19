@@ -40,6 +40,26 @@ _ = app.Services.GetRequiredService<FlowLibrary>();
 _ = app.Services.GetRequiredService<FlowEngine>();
 _ = app.Services.GetRequiredService<CaseStore>();
 ExtractionStorage.Initialize(app.Services.GetRequiredService<Store>());
+
+// Orchestrators may probe by pod IP, not an application hostname. Only these exact
+// GETs return a status without inspecting identity, disclosing details or serving data.
+app.Use(
+    async (context, next) =>
+    {
+        var path = context.Request.Path.Value;
+        if (HttpMethods.IsGet(context.Request.Method) && path is "/health/live" or "/health/ready")
+        {
+            context.Response.Headers.CacheControl = "no-store";
+            context.Response.StatusCode =
+                path == "/health/live"
+                || context.RequestServices.GetRequiredService<Store>().Ready()
+                    ? StatusCodes.Status200OK
+                    : StatusCodes.Status503ServiceUnavailable;
+            return;
+        }
+        await next();
+    }
+);
 app.Use(
     async (context, next) =>
     {

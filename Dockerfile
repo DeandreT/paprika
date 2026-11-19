@@ -2,18 +2,19 @@ FROM node:22-bookworm-slim@sha256:e9f565d32859f0cbfb52125eafe8be39390f24dac302dc
 WORKDIR /src/client
 COPY client/package*.json ./
 RUN npm ci --no-audit --no-fund
-COPY client/ ./
+COPY client/angular.json client/tsconfig*.json ./
+COPY client/src/ ./src/
 RUN npm run build -- --configuration production && test -s dist/client/browser/assets/pdf.worker.min.mjs
 
-FROM mcr.microsoft.com/dotnet/sdk:10.0-noble@sha256:185d1315aced781f8b6d12e7ed415d929bdbef411c5136da2c0ea95c2932788a AS api
+FROM mcr.microsoft.com/dotnet/sdk:10.0-noble@sha256:bef136a371963aaa46ec97882845ef6f54dec15728bb4b128b1c2a400ffbc9b4 AS api
 WORKDIR /src/server
 COPY server/paprika.Api.csproj ./
 RUN dotnet restore -r linux-x64
-COPY server/ ./
+COPY server/*.cs ./
 RUN dotnet publish --no-restore -c Release -r linux-x64 --self-contained false -p:UseAppHost=false -o /out \
     && test -s /out/pdfium.so && test -s /out/libSkiaSharp.so
 
-FROM mcr.microsoft.com/dotnet/aspnet:10.0-noble@sha256:c7c140506083e49847e13111509a56bf937075e685c53f6baa035ebce547b03b
+FROM mcr.microsoft.com/dotnet/aspnet:10.0-noble@sha256:12b1135f5f8b3c0a214f2a680ff2033dff4f684f445d6c697d9524ceeb303586
 RUN apt-get update && apt-get install -y --no-install-recommends libfontconfig1 fonts-dejavu-core \
     && rm -rf /var/lib/apt/lists/* \
     && install -d -o app -g app -m 0700 /data

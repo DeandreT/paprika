@@ -96,6 +96,8 @@ def preflight(api):
             require(time.monotonic() < deadline, "Timed out waiting for /api/health")
             time.sleep(.5)
     require(health["status"] == "ok", "API health was not ok")
+    for path in ("/health/live", "/health/ready"):
+        require(api.request(path, auth=False) == b"", f"Unexpected probe content: {path}")
     require(b"<app-root" in api.request("/", auth=False, media="text/html"), "Missing Angular app")
     worker = api.request("/assets/pdf.worker.min.mjs", auth=False, media="javascript")
     require(b"WorkerMessageHandler" in worker, "Missing PDF.js worker")
