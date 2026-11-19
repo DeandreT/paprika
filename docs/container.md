@@ -4,7 +4,7 @@ The release image is a single Linux/amd64 process: .NET 10 serves the Angular UI
 
 ## Build and verify locally
 
-From the checkout, with Docker and Python 3:
+The image build uses Bun 1.4.5 to compile the frontend; Bun is not needed on the host or in the release image. From the checkout, use Docker to build the image and Bash and Python 3 to run the smoke test:
 
 ```sh
 docker build --platform linux/amd64 -t paprika:local .

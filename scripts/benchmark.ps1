@@ -3,11 +3,11 @@ param([string]$PackageDirectory, [string]$ReportPath, [string]$Python = 'python'
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 $root = Split-Path $PSScriptRoot -Parent
-foreach ($command in @('dotnet', 'npm.cmd', $Python)) { $null = Get-Command $command -ErrorAction Stop }
+foreach ($command in @('dotnet', 'bun', $Python)) { $null = Get-Command $command -ErrorAction Stop }
 if (-not $PackageDirectory) { $PackageDirectory = Join-Path $root 'artifacts/publish-platform' }
 $package = (Resolve-Path -LiteralPath $PackageDirectory).Path
 if (-not (Test-Path -LiteralPath "$package/paprika.Api.dll")) { throw 'Publish the application first.' }
-if (-not (Test-Path -LiteralPath "$root/tests/node_modules/@playwright/test")) { throw 'Run npm ci from tests first.' }
+if (-not (Test-Path -LiteralPath "$root/tests/node_modules/@playwright/test")) { throw 'Run bun install --frozen-lockfile from tests first.' }
 if (Get-NetTCPConnection -LocalPort 5080 -State Listen -ErrorAction SilentlyContinue) { throw 'Port 5080 is in use. Stop the local API before running the isolated benchmark.' }
 if (-not $ReportPath) {
     $ReportPath = Join-Path $root 'artifacts/benchmark-report.json'
@@ -46,7 +46,7 @@ try {
     $env:PAPRIKA_BENCHMARK_PYTHON = $Python
     Push-Location "$root/tests"
     try {
-        & npm.cmd test -- --config benchmark.config.ts
+        & bun --bun run test --config benchmark.config.ts
         if ($LASTEXITCODE -ne 0) { throw 'Synthetic benchmark invariants failed.' }
     } finally { Pop-Location }
     Write-Host "Synthetic benchmark report: $ReportPath"

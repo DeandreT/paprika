@@ -4,7 +4,7 @@ One .NET process serves the Angular UI, PDF preview worker, API and OpenAPI on `
 
 ## Build from source
 
-Install PowerShell 7, the .NET 10 SDK, and Node.js 22.22.3 or later in the 22.x line with npm. From the repository root, in a shell without provider credentials:
+Install PowerShell 7, the .NET 10 SDK, and Bun 1.4.5. From the repository root, in a shell without provider credentials:
 
 ```powershell
 ./scripts/publish.ps1
@@ -18,7 +18,7 @@ The script checks backend formatting, installs frontend dependencies from the lo
 
 ## Run the package
 
-Copy the **entire release folder** to the target Windows machine. Install PowerShell 7 and the **.NET 10 ASP.NET Core Runtime**; Node.js and the SDK aren't needed. Stop any development API on port 5080, then run this from the release folder:
+Copy the **entire release folder** to the target Windows machine. Install PowerShell 7 and the **.NET 10 ASP.NET Core Runtime**; Bun and the SDK aren't needed. Stop any development API on port 5080, then run this from the release folder:
 
 ```powershell
 ./run-published.ps1

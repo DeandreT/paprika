@@ -13,13 +13,13 @@ try {
     if ($LASTEXITCODE -ne 0) { throw 'Evaluation or recovery-evidence tests failed.' }
     Push-Location client
     try {
-        & npm.cmd run build
+        & bun --bun run build
         if ($LASTEXITCODE -ne 0) { throw 'Angular build failed.' }
     } finally { Pop-Location }
     if ($Browser) {
         Push-Location tests
         try {
-            & npm.cmd test
+            & bun --bun run test
             if ($LASTEXITCODE -ne 0) { throw 'Browser/API tests failed.' }
         } finally { Pop-Location }
     }

@@ -3,7 +3,7 @@
 !client/
 client/**
 !client/package.json
-!client/package-lock.json
+!client/bun.lock
 !client/angular.json
 !client/tsconfig*.json
 !client/src/

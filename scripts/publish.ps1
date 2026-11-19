@@ -27,9 +27,9 @@ try {
     if ($LASTEXITCODE -ne 0) { throw 'Backend formatting check failed.' }
     Push-Location (Join-Path $root 'client')
     try {
-        & npm.cmd ci
+        & bun install --frozen-lockfile
         if ($LASTEXITCODE -ne 0) { throw 'Frontend dependency installation failed.' }
-        & npm.cmd run build -- --configuration production
+        & bun --bun run build --configuration production
         if ($LASTEXITCODE -ne 0) { throw 'Frontend production build failed.' }
     } finally { Pop-Location }
     & dotnet publish server/paprika.Api.csproj --configuration Release --self-contained false --output $stage

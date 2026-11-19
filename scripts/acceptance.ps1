@@ -11,7 +11,7 @@ foreach ($key in @('paprika__AzureKey', 'paprika__JevApiKey')) {
 if (-not $PackageDirectory) { $PackageDirectory = Join-Path $root 'artifacts/publish-platform' }
 $package = (Resolve-Path -LiteralPath $PackageDirectory).Path
 if (-not (Test-Path -LiteralPath "$package/paprika.Api.dll")) { throw 'Publish the application first.' }
-if (-not (Test-Path -LiteralPath "$root/tests/node_modules/@playwright/test")) { throw 'Run npm ci from tests and install Playwright Chromium first.' }
+if (-not (Test-Path -LiteralPath "$root/tests/node_modules/@playwright/test")) { throw 'Run bun install --frozen-lockfile from tests and install Playwright Chromium first.' }
 if (Get-NetTCPConnection -LocalPort 5080 -State Listen -ErrorAction SilentlyContinue) {
     throw 'Port 5080 is already in use. Stop your local API before running isolated acceptance checks.'
 }
@@ -42,7 +42,7 @@ try {
     $env:PAPRIKA_TEST_URL = 'http://127.0.0.1:5080'
     Push-Location "$root/tests"
     try {
-        if ($TestFiles) { & npm.cmd test -- @TestFiles } else { & npm.cmd test }
+        if ($TestFiles) { & bun --bun run test @TestFiles } else { & bun --bun run test }
         if ($LASTEXITCODE -ne 0) { throw 'Published application acceptance tests failed.' }
     } finally { Pop-Location }
 } finally {

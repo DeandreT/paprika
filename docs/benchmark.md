@@ -1,13 +1,13 @@
 # Synthetic offline benchmark
 
-Run from the repository root after publishing the application and running `npm ci` in `tests`:
+Run from the repository root after publishing the application and running `bun install --frozen-lockfile` in `tests/` with Bun 1.4.5:
 
 ```powershell
 pwsh -File scripts/benchmark.ps1
 # Optional: -PackageDirectory <published-folder> -ReportPath <new-json-path> -Python <python-executable>
 ```
 
-The harness discovers .NET, npm and Python, starts its own published API on port 5080 in Simulation mode, removes the provider key environment variables and overrides provider keys to empty, waits for readiness, then runs the dedicated Playwright API suite. It stops its process and removes its private temporary application/evaluation data in `finally`. An occupied port is rejected. No browser download or additional Node dependencies are required.
+The harness discovers .NET, Bun and Python, starts its own published API on port 5080 in Simulation mode, removes the provider key environment variables and overrides provider keys to empty, waits for readiness, then runs the dedicated Playwright API suite. It stops its process and removes its private temporary application/evaluation data in `finally`. An occupied port is rejected. No browser download is required.
 
 The default output is `artifacts/benchmark-report.json`. Existing reports are preserved; a later default run selects a new unique filename. An explicitly requested existing path is rejected. The retained JSON contains synthetic case names, counts, metrics and review requirements, with no runtime packet/page IDs, timestamps or document text.
 
@@ -19,7 +19,7 @@ Cases cover five clear document types, adjacent distinct documents of the same t
 
 After scoring, the test simulates a reviewer applying the independent labels through the review API. It verifies approved exports contain PDF documents and an exact manifest mapping, including noncontiguous and reordered page membership. Original page predictions, reference candidates and the initial document-history snapshot must remain unchanged. Conflicting references must remain candidates rather than being automatically assigned.
 
-The benchmark passes on preservation, approval, provenance and correction invariants. It deliberately has no accuracy pass threshold: imperfect predictions are reported as measured limitations, not relabelled to pass. The dedicated `tests/benchmark.config.ts` selects `*.benchmark.ts`; ordinary `npm test` / acceptance runs select `*.spec.ts` and exclude this suite.
+The benchmark passes on preservation, approval, provenance and correction invariants. It deliberately has no accuracy pass threshold: imperfect predictions are reported as measured limitations, not relabelled to pass. The dedicated `tests/benchmark.config.ts` selects `*.benchmark.ts`; ordinary `bun --bun run test` / acceptance runs select `*.spec.ts` and exclude this suite.
 
 ## Interpretation
 

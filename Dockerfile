@@ -1,10 +1,10 @@
-FROM node:22-bookworm-slim@sha256:e9f565d32859f0cbfb52125eafe8be39390f24dac302dc3cdf566e8ba3ab21ee AS ui
+FROM oven/bun:1.4.5-debian@sha256:3dddea58e1f8f2240eca906b023fedb944f9a8352515a35309fd0c879fe00aaa AS ui
 WORKDIR /src/client
-COPY client/package*.json ./
-RUN npm ci --no-audit --no-fund
+COPY client/package.json client/bun.lock ./
+RUN bun install --frozen-lockfile
 COPY client/angular.json client/tsconfig*.json ./
 COPY client/src/ ./src/
-RUN npm run build -- --configuration production && test -s dist/client/browser/assets/pdf.worker.min.mjs
+RUN bun --bun run build --configuration production && test -s dist/client/browser/assets/pdf.worker.min.mjs
 
 FROM mcr.microsoft.com/dotnet/sdk:10.0-noble@sha256:bef136a371963aaa46ec97882845ef6f54dec15728bb4b128b1c2a400ffbc9b4 AS api
 WORKDIR /src/server

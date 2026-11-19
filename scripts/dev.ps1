@@ -5,6 +5,7 @@ param(
 
 $ErrorActionPreference = 'Stop'
 $root = Split-Path $PSScriptRoot -Parent
+$bun = (Get-Command bun -CommandType Application -ErrorAction Stop | Select-Object -First 1).Path
 $children = [System.Collections.Generic.List[System.Diagnostics.Process]]::new()
 
 function Start-Child([string]$file, [string[]]$arguments, [string]$directory, [bool]$frontend = $false) {
@@ -27,7 +28,7 @@ try {
     if ($Install) {
         Push-Location "$root/client"
         try {
-            & npm.cmd ci
+            & $bun install --frozen-lockfile
             if ($LASTEXITCODE -ne 0) { throw 'Frontend dependency installation failed.' }
         } finally { Pop-Location }
         & dotnet restore "$root/server/paprika.Api.csproj"
@@ -35,7 +36,7 @@ try {
     }
     if (-not (Test-Path "$root/client/node_modules")) { throw 'Run with -Install on first use.' }
     $api = Start-Child 'dotnet' @('run', '--project', "$root/server/paprika.Api.csproj", '--no-launch-profile', '--urls', 'http://127.0.0.1:5080') $root
-    $ui = Start-Child 'pwsh' @('-NoProfile', '-Command', '& npm.cmd run start -- --host 127.0.0.1') "$root/client" $true
+    $ui = Start-Child $bun @('--bun', 'run', 'start', '--host', '127.0.0.1') "$root/client" $true
     Write-Host 'paprika: http://127.0.0.1:4200 (allow the first build to finish). Ctrl+C stops both processes.'
     if (-not $NoBrowser) { Start-Process 'http://127.0.0.1:4200' }
     while (-not $api.HasExited -and -not $ui.HasExited) { Start-Sleep -Seconds 1 }
