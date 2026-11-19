@@ -24,7 +24,8 @@ def snapshot(ref, destination):
     # Ignore files absent from this tree, even if staged or present in the working directory.
     with tempfile.TemporaryDirectory() as tmp:
         tar = Path(tmp) / "source.tar"
-        git("archive", "--format=tar", "--prefix=paprika/", "--mtime=2000-01-01T00:00:00Z",
+        git("-c", "core.autocrlf=false", "-c", "tar.umask=0002",
+            "archive", "--format=tar", "--prefix=paprika/", "--mtime=2000-01-01T00:00:00Z",
             f"--output={tar}", tree)
         with destination.open("xb") as output:
             try:
