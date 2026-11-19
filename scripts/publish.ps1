@@ -38,11 +38,12 @@ try {
     if (-not (Test-Path -LiteralPath "$browser/index.html")) { throw 'Angular index.html was not produced.' }
     $null = New-Item -ItemType Directory -Path "$stage/wwwroot" -Force
     Copy-Item -Path "$browser/*" -Destination "$stage/wwwroot" -Recurse
+    & "$root/scripts/licensing/collect-notices.ps1" -PackageDirectory $stage
     Copy-Item -LiteralPath "$root/scripts/run-published.ps1" -Destination "$stage/run-published.ps1"
     Copy-Item -LiteralPath "$root/docs/packaging.md" -Destination "$stage/packaging.md"
     Copy-Item -LiteralPath "$root/docs/wolverine.md" -Destination "$stage/wolverine.md"
     Copy-Item -LiteralPath "$root/docs/workflows.md" -Destination "$stage/workflows.md"
-    foreach ($name in @('platform-contract.md', 'platform-verification.md', 'quality-platform.md', 'connectors-platform.md', 'operations-platform.md', 'extraction-platform.md', 'flows-platform.md')) {
+    foreach ($name in @('storage.md', 'recovery.md', 'platform-contract.md', 'platform-verification.md', 'quality-platform.md', 'connectors-platform.md', 'operations-platform.md', 'extraction-platform.md', 'flows-platform.md')) {
         Copy-Item -LiteralPath "$root/docs/$name" -Destination (Join-Path $stage $name)
     }
     foreach ($file in @('paprika.Api.dll', 'paprika.Api.runtimeconfig.json', 'wwwroot/index.html', 'wwwroot/assets/pdf.worker.min.mjs')) {

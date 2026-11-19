@@ -1,5 +1,7 @@
 # Offline backup and recovery
 
+**Azure Blob installations:** the filesystem backup alone is incomplete. Follow [the coordinated artifact backup and restore procedure](storage.md#backup-and-restore) before using these scripts.
+
 Use PowerShell 7 on Windows. Stop **every application instance using the data directory** before backup or restore, and keep it stopped until the command completes. These are offline filesystem copies, not SQLite online snapshots. The scripts reject a listener on the application's fixed port 5080 and files held open exclusively, but those checks are only safeguards: they cannot prove that an arbitrary process is not writing the directory. Do not start a server during either operation.
 
 Keep runtime data and backups on local, access-controlled storage outside OneDrive. Backups contain private originals, extracted content, review history and simulated delivery data. The manifest contains lengths and SHA-256 hashes for corruption detection; it is not a signature or protection against someone replacing both the files and manifest. Restore only trusted backups.

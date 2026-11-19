@@ -5,6 +5,7 @@
 - [First run on Windows](../README.md#first-run-on-windows) — start from source and try a packet locally.
 - [Run in separate terminals](development.md#run-in-separate-terminals) or [build a Windows package](packaging.md) that serves the API and UI together.
 - [Run the Linux container](container.md) — build and smoke-test the image, configure access and persist data.
+- [Choose where documents are stored](storage.md) — use the local filesystem or a private Azure Blob container.
 - [Configure live providers](providers.md) — choose Azure OCR, Jev or OpenAI and publish a Live workflow.
 
 ## Process paperwork
@@ -28,5 +29,6 @@
 ## Develop and evaluate
 
 - [Build, format and run tests](development.md), including isolated package acceptance checks.
+- [Prepare and verify a source release](source-release.md) from a reviewed commit.
 - [Evaluate real paperwork](evaluation.md) against held-out labels; use the [synthetic benchmark](benchmark.md) for regression checks.
 - Consult the [platform verification results](platform-verification.md), [earlier workflow release checks](completion.md) and [requirements and evidence](requirements.md) for the scope of past tests.

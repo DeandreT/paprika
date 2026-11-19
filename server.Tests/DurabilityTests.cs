@@ -345,7 +345,7 @@ public sealed class DurabilityTests : IDisposable
     {
         var store = NewStore();
         var p = new Packet { Mode = "live" }; // No configured providers: permanent, sanitized failure.
-        p.Sources.Add(new Source { Extension = ".pdf" });
+        AddFixtureSource(store, p);
         using (var host = Host(store))
         {
             await host.StartAsync();
@@ -396,7 +396,7 @@ public sealed class DurabilityTests : IDisposable
         using var host = Host(store);
         await host.StartAsync();
         var p = new Packet { Mode = "live" };
-        p.Sources.Add(new Source { Extension = ".pdf" });
+        AddFixtureSource(store, p);
         store.Accept(p, null);
         var operations = host.Services.GetRequiredService<MessagingOperations>();
         await Until(() =>
@@ -422,6 +422,16 @@ public sealed class DurabilityTests : IDisposable
         );
         Assert.Equal("cancelled", store.Get(p.Id)!.Status);
         await host.StopAsync();
+    }
+
+    private static void AddFixtureSource(Store store, Packet p)
+    {
+        var source = new Source { Extension = ".pdf", PageCount = 1 };
+        var path = store.SourcePath(p, source);
+        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+        Pdfs.Synthetic(path, ["Synthetic failure-test fixture"]);
+        source.Sha256 = Pdfs.SourceHash(path);
+        p.Sources.Add(source);
     }
 
     [Theory]

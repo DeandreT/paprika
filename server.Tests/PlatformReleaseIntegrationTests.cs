@@ -48,6 +48,16 @@ public sealed class PlatformReleaseIntegrationTests
         Assert.Equal(HttpStatusCode.OK, export.StatusCode);
         using var zipBytes = new MemoryStream(await export.Content.ReadAsByteArrayAsync());
         using var zip = new ZipArchive(zipBytes);
+        using (var embeddedPdf = zip.Entries.Single(e => e.Name.EndsWith(".pdf")).Open())
+        using (var buffer = new MemoryStream())
+        {
+            await embeddedPdf.CopyToAsync(buffer);
+            Assert.Equal(await pdf.Content.ReadAsByteArrayAsync(), buffer.ToArray());
+        }
+        Assert.Equal(
+            zipBytes.ToArray(),
+            await client.GetByteArrayAsync($"/api/packets/{approved.Id}/export")
+        );
         var platform = await ReadEntry(zip, "platform.json");
         using var evidence = JsonDocument.Parse(platform);
         var root = evidence.RootElement;
@@ -93,6 +103,34 @@ public sealed class PlatformReleaseIntegrationTests
         await Blocked(client, download);
         // Historical successful ZIP bytes remain an exact approved-revision artifact.
         Assert.Equal(approved.Revision, evidence.RootElement.GetProperty("revision").GetInt32());
+    }
+
+    [Fact]
+    public async Task CommittedBundleReceiptRejectsMissingOrModifiedArtifactInsteadOfRegenerating()
+    {
+        await using var app = new ReleaseFactory();
+        using var client = app.Client();
+        var store = app.Services.GetRequiredService<Store>();
+        var packet = Worker.Demo(store);
+        packet.Status = "review";
+        packet.Documents = Worker.Assemble(packet.Pages);
+        store.Save(packet);
+        var approved = store
+            .Review(packet.Id, new(packet.Revision, packet.Documents, true))
+            .Packet!;
+        var url = $"/api/packets/{packet.Id}/export";
+        var original = await client.GetByteArrayAsync(url);
+        var dir = Path.Combine(store.Root, packet.Id, "exports", approved.Revision.ToString());
+        var path = Assert.Single(Directory.GetFiles(dir, "*.zip"));
+        File.WriteAllBytes(path, [1, 2, 3]);
+        using (var response = await client.GetAsync(url))
+            Assert.Equal(HttpStatusCode.ServiceUnavailable, response.StatusCode);
+        File.Delete(path);
+        using (var response = await client.GetAsync(url))
+            Assert.False(response.IsSuccessStatusCode);
+        Assert.False(File.Exists(path));
+        File.WriteAllBytes(path, original);
+        Assert.Equal(original, await client.GetByteArrayAsync(url));
     }
 
     [Fact]

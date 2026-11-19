@@ -10,6 +10,7 @@ public sealed class Store
     private readonly object gate = new();
     internal DurableQueue? Queue { get; private set; }
     public WorkflowRegistry Workflows { get; }
+    internal ArtifactStorage PacketArtifacts { get; }
     public string ConnectionString =>
         new SqliteConnectionStringBuilder
         {
@@ -23,6 +24,7 @@ public sealed class Store
         Root = AppPaths.DataRoot(config);
         Directory.CreateDirectory(Root);
         using var c = Open();
+        PacketArtifacts = new ArtifactStorage(Root, config, c);
         using var q = c.CreateCommand();
         q.CommandText =
             "PRAGMA journal_mode=WAL; CREATE TABLE IF NOT EXISTS packets(id TEXT PRIMARY KEY, json TEXT NOT NULL); CREATE TABLE IF NOT EXISTS revisions(packet_id TEXT, revision INTEGER, json TEXT NOT NULL, PRIMARY KEY(packet_id,revision)); CREATE TABLE IF NOT EXISTS artifacts(packet_id TEXT, name TEXT, json TEXT NOT NULL, PRIMARY KEY(packet_id,name)); CREATE TABLE IF NOT EXISTS intake_keys(key TEXT PRIMARY KEY, fingerprint TEXT NOT NULL, packet_id TEXT NOT NULL); CREATE INDEX IF NOT EXISTS packets_status ON packets(json_extract(json,'$.status'));";
@@ -46,7 +48,7 @@ public sealed class Store
         return c;
     }
 
-    public string SourcePath(Packet p, Source s) => Path.Combine(Root, p.Id, s.Id + s.Extension);
+    public string SourcePath(Packet p, Source s) => PacketArtifacts.SourcePath(p, s);
 
     internal bool Ready()
     {
@@ -94,7 +96,17 @@ public sealed class Store
         return j is null ? null : JsonSerializer.Deserialize<Packet>(j, Contract.Json);
     }
 
-    public T ApprovedOutput<T>(string id, Func<Packet, T> generate, Action<Packet>? validate = null)
+    public T ApprovedOutput<T>(
+        string id,
+        Func<Packet, T> generate,
+        Action<Packet>? validate = null
+    ) => WithApprovedRevision(id, (_, _, p) => generate(p), validate);
+
+    internal T WithApprovedRevision<T>(
+        string id,
+        Func<SqliteConnection, SqliteTransaction, Packet, T> generate,
+        Action<Packet>? validate = null
+    )
     {
         using var c = Open();
         using var tx = c.BeginTransaction();
@@ -103,7 +115,7 @@ public sealed class Store
         if (packet.Status != "approved")
             throw new WorkflowException(409, "Approve this revision before export.");
         PlatformReleaseGate.Ensure(c, tx, packet, new ConnectorCatalog(Configuration));
-        var output = generate(packet);
+        var output = generate(c, tx, packet);
         tx.Commit();
         return output;
     }
@@ -205,6 +217,7 @@ public sealed class Store
             return (null, ex.Code, ex.Message);
         }
         var fingerprint = Fingerprint(packet.Mode);
+        PacketArtifacts.PublishOriginals(packet);
         q.Parameters.Clear();
         q.CommandText = "INSERT INTO packets VALUES($id,$json)";
         q.Parameters.AddWithValue("$id", packet.Id);
@@ -311,6 +324,7 @@ public sealed class Store
             p.Audit.Add(
                 new(DateTimeOffset.UtcNow, "new run from original source bytes", p.Revision)
             );
+            PacketArtifacts.PublishOriginals(p);
             q.Parameters.Clear();
             q.CommandText = "INSERT INTO packets VALUES($id,$json)";
             q.Parameters.AddWithValue("$id", p.Id);

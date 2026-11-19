@@ -36,19 +36,28 @@ public sealed class IntakeLifecycleTests : IDisposable
 
     private Store Store => new(Config());
 
-    private static Packet Intake(string name = "file.pdf", string hash = "abc") =>
-        new()
+    private Packet Intake(string name = "file.pdf", string hash = "abc")
+    {
+        var p = new Packet();
+        AddSource(p, name, hash, 1);
+        return p;
+    }
+
+    private void AddSource(Packet p, string name, string text, int pages)
+    {
+        var source = new Source
         {
-            Sources =
-            [
-                new()
-                {
-                    Name = name,
-                    Sha256 = hash,
-                    PageCount = 1,
-                },
-            ],
+            Name = name,
+            Extension = ".pdf",
+            PageCount = pages,
         };
+        var directory = Path.Combine(root, p.Id);
+        Directory.CreateDirectory(directory);
+        var path = Path.Combine(directory, source.Id + ".pdf");
+        Pdfs.Synthetic(path, Enumerable.Repeat(text, pages).ToList());
+        source.Sha256 = Pdfs.SourceHash(path);
+        p.Sources.Add(source);
+    }
 
     [Fact]
     public async Task IdempotencyBindingIsAtomicAcrossStoresAndSurvivesRecreation()
@@ -80,24 +89,10 @@ public sealed class IntakeLifecycleTests : IDisposable
     public void OrderedSourcesArePartOfFingerprint()
     {
         var p = Intake();
-        p.Sources.Add(
-            new()
-            {
-                Name = "second.pdf",
-                Sha256 = "def",
-                PageCount = 2,
-            }
-        );
+        AddSource(p, "second.pdf", "def", 2);
         Assert.Equal(200, Store.Accept(p, "ordered").Code);
         var other = Intake();
-        other.Sources.Add(
-            new()
-            {
-                Name = "second.pdf",
-                Sha256 = "def",
-                PageCount = 2,
-            }
-        );
+        AddSource(other, "second.pdf", "def", 2);
         other.Sources.Reverse();
         Assert.Equal(409, Store.Accept(other, "ordered").Code);
     }

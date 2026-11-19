@@ -2,8 +2,6 @@ using System.Text.Json;
 
 namespace paprika;
 
-public sealed record SourceIdentifier(string SourceId, string Kind, string Value, string Evidence);
-
 public sealed class Packet
 {
     public string Id { get; set; } = Guid.NewGuid().ToString("N");
@@ -60,6 +58,11 @@ public sealed class Source
     public string Id { get; set; } = Guid.NewGuid().ToString("N");
     public string Name { get; set; } = "";
     public string Extension { get; set; } = "";
+
+    [System.Text.Json.Serialization.JsonIgnore(
+        Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull
+    )]
+    public string? ArtifactProvider { get; set; }
     public int PageCount { get; set; }
     public string? Sha256 { get; set; }
     public string? OperationUrl { get; set; }
@@ -87,6 +90,8 @@ public sealed record ReprocessRequest(
     string? WorkflowId = null,
     int? WorkflowVersion = null
 );
+
+public sealed record SourceIdentifier(string SourceId, string Kind, string Value, string Evidence);
 
 public sealed record IdentifierCandidate(
     string Kind,

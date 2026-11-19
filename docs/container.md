@@ -11,6 +11,8 @@ docker build --platform linux/amd64 -t paprika:local .
 bash scripts/check-container.sh paprika:local
 ```
 
+To run the same byte-preservation checks against the filesystem and an isolated Azurite Blob emulator, run `python3 scripts/check-blob-storage.py paprika:local`. See [packet artifact storage](storage.md) for configuration and backup requirements.
+
 The smoke test creates a disposable volume and administrator credential and publishes a random loopback port. It uploads a synthetic PDF, rasterizes a page with PDFium and Skia, approves a review, downloads the document and ZIP, replaces the container, and verifies the saved packet and original bytes. It cleans up its containers and volume. A Windows development/package install continues to work independently.
 
 ## Runtime contract
