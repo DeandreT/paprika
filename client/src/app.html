@@ -127,6 +127,8 @@
       @for (p of visiblePackets(); track p.id) {
       <button
         class="packet-item"
+        (pointerenter)="previewIntent()" (focus)="previewIntent()"
+        (pointerleave)="cancelPreviewIntent()" (blur)="cancelPreviewIntent()"
         [class.active]="packet()?.id === p.id"
         (click)="open(p.id)"
         [disabled]="busy()"

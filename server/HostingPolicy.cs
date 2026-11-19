@@ -5,6 +5,7 @@ namespace paprika;
 public sealed class HostingPolicy
 {
     private readonly bool shared;
+    private readonly int localPort;
     private readonly HashSet<string> hosts;
     private readonly HashSet<string> origins;
     public string ListenUrl { get; }
@@ -16,9 +17,12 @@ public sealed class HostingPolicy
             "shared",
             StringComparison.OrdinalIgnoreCase
         );
+        localPort = shared ? 5080 : config.GetValue("paprika:Hosting:LocalPort", 5080);
+        if (localPort is < 1 or > 65535)
+            throw new InvalidOperationException("Local port must be between 1 and 65535.");
         ListenUrl = shared
             ? config["paprika:Hosting:Url"] ?? "http://127.0.0.1:5080"
-            : "http://127.0.0.1:5080";
+            : $"http://127.0.0.1:{localPort}";
         if (
             !Uri.TryCreate(ListenUrl, UriKind.Absolute, out var listen)
             || listen.Scheme is not ("http" or "https")
@@ -95,7 +99,7 @@ public sealed class HostingPolicy
             return
                 origin.Scheme == "http"
                 && hosts.Contains(origin.Host)
-                && origin.Port is 4200 or 5080
+                && (origin.Port == 4200 || origin.Port == localPort)
                 ? null
                 : "Foreign origins are not allowed.";
         var authority = origin.GetLeftPart(UriPartial.Authority);
