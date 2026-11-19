@@ -1,6 +1,8 @@
-# Install the optional PDF preview engine
+# PDF preview renderer
 
-Paprika uses its bundled PDF.js renderer by default. To enable Leafview, start with a [published paprika package](packaging.md) and a **trusted local Leafview delivery directory** approved for distribution. The renderer runs as same-origin application code. Verify the delivery's provenance and licensing before installing it.
+Paprika previews PDFs with **Leafview** by default. The versioned delivery in `client/src/preview-engine/` ships with the client, including its on-demand resources and notices. No runtime download from GitHub is required. PDF.js remains the fallback when Leafview cannot open or render a document.
+
+The bundled [Leafview source and build instructions](https://github.com/DeandreT/leafview/tree/3c5020179d95afe1b38a4bb05c927d5068959e9f) correspond to the default delivery. To update a [published paprika package](packaging.md), supply a trusted local renderer delivery as described below.
 
 ## Install
 

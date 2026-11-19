@@ -17,6 +17,11 @@
             "styles": ["src/styles.scss"],
             "assets": [
               {
+                "glob": "**/*",
+                "input": "src/preview-engine",
+                "output": "assets/preview-engine"
+              },
+              {
                 "glob": "pdf.worker.min.mjs",
                 "input": "node_modules/pdfjs-dist/build",
                 "output": "assets"
