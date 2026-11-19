@@ -18,7 +18,9 @@
     <label>Search packets<input type="search" [(ngModel)]="search" placeholder="Packet name" /></label>
     <nav class="guided-packet-list" aria-label="Existing packets">
       @for (p of packets(); track p.id) {
-        <button class="packet-item" (click)="open(p.id)" [disabled]="w.busy()"><span class="packet-name">{{ p.name }}</span><span class="packet-meta">{{ p.pages.length }} pages <span class="badge" [class.approved]="p.status === 'approved'">{{ p.status }}</span></span></button>
+        <button class="packet-item" (click)="open(p.id)" [disabled]="w.busy()"
+          (pointerenter)="w.previewIntent()" (focus)="w.previewIntent()"
+          (pointerleave)="w.cancelPreviewIntent()" (blur)="w.cancelPreviewIntent()"><span class="packet-name">{{ p.name }}</span><span class="packet-meta">{{ p.pages.length }} pages <span class="badge" [class.approved]="p.status === 'approved'">{{ p.status }}</span></span></button>
       } @empty { <p class="small muted">No matching packets.</p> }
     </nav>
   } @else {
@@ -68,7 +70,7 @@
                     <button mat-button data-testid="preview-zoom-in" (click)="changeZoom(.25)" [disabled]="zoom() >= 3" aria-label="Zoom in">＋</button>
                   </div>
                 </div>
-                <div class="large-preview" [class.preview-zoomed]="zoom() > 1" [style.--preview-zoom]="zoom()" tabindex="0" aria-label="Document preview; scroll to pan when zoomed"><app-page-preview [url]="page.previewUrl" [name]="page.sourceName" [pageNumber]="page.pageNumber" /></div>
+                <div class="large-preview" [class.preview-zoomed]="zoom() > 1" [style.--preview-zoom]="zoom()" tabindex="0" aria-label="Document preview; scroll to pan when zoomed"><app-page-preview [url]="page.previewUrl" [name]="page.sourceName" [pageNumber]="page.pageNumber" [width]="zoom() >= 2 ? 1600 : 900" /></div>
                 <a class="source-link" [href]="page.previewUrl" target="_blank" rel="noopener">Open original source ↗</a>
               }
             </section>

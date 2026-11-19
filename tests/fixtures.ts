@@ -1,12 +1,14 @@
-/** Small real PDF containing synthetic text only; no fonts or services to download. */
-export function textPdf(pages: string[]): Buffer {
+/** Small real PDF with synthetic text and optional center swatches in PDF RGB (0–1). */
+export function textPdf(pages: string[], swatches?: readonly (readonly [number, number, number])[]): Buffer {
   const objects = ['<< /Type /Catalog /Pages 2 0 R >>', '', '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>'];
   const kids: string[] = [];
   for (const text of pages) {
     const page = objects.length + 1, stream = page + 1;
     kids.push(`${page} 0 R`);
     objects.push(`<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 3 0 R >> >> /Contents ${stream} 0 R >>`);
-    const content = 'BT /F1 14 Tf 50 740 Td ' + text.split('\n').map(line =>
+    const rgb = swatches?.[kids.length - 1];
+    const marker = rgb ? `q ${rgb.join(' ')} rg 250 340 110 110 re f Q\n` : '';
+    const content = marker + 'BT /F1 14 Tf 50 740 Td ' + text.split('\n').map(line =>
       '(' + line.replace(/\\/g, '\\\\').replace(/\(/g, '\\(').replace(/\)/g, '\\)') + ') Tj'
     ).join(' 0 -24 Td ') + ' ET';
     objects.push(`<< /Length ${Buffer.byteLength(content, 'ascii')} >>\nstream\n${content}\nendstream`);

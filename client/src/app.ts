@@ -13,6 +13,7 @@ import { CdkDragDrop, DragDropModule } from "@angular/cdk/drag-drop";
 import { firstValueFrom } from "rxjs";
 import { Config, Packet, Document, PacketRevision, VersionRef } from "./models";
 import { PagePreviewComponent } from "./pdf-preview";
+import { signalPreviewIntent, cancelPreviewIntent } from "./preview-backend";
 import { DeliveryComponent } from "./delivery";
 import { OperationsComponent } from "./operations";
 import { WorkflowStore, refKey, splitPolicy } from "./workflow-store";
@@ -54,6 +55,8 @@ export interface ShipmentCheck { documentId: string; revision: number; reference
   templateUrl: "./app.html",
 })
 export class AppComponent {
+  previewIntent = signalPreviewIntent;
+  cancelPreviewIntent = cancelPreviewIntent;
   theme = inject(ThemeService);
   classificationAdvanced = signal(false);
   classificationStage = signal<"upload" | "review" | "approve" | "export">("upload");

@@ -27,6 +27,23 @@ public class PlatformHostingTests
     }
 
     [Fact]
+    public void CustomLocalPortRemainsLoopbackOnly()
+    {
+        var policy = new HostingPolicy(Config(new() { ["paprika:Hosting:LocalPort"] = "5187" }));
+        Assert.Equal("http://127.0.0.1:5187", policy.ListenUrl);
+        var context = new DefaultHttpContext();
+        context.Connection.RemoteIpAddress = IPAddress.Loopback;
+        context.Request.Host = new HostString("localhost", 5187);
+        context.Request.Headers.Origin = "http://localhost:5187";
+        Assert.Null(policy.Reject(context));
+        context.Request.Headers.Origin = "http://localhost:5080";
+        Assert.NotNull(policy.Reject(context));
+        context.Request.Headers.Origin = "http://localhost:5187";
+        context.Connection.RemoteIpAddress = IPAddress.Parse("192.0.2.15");
+        Assert.NotNull(policy.Reject(context));
+    }
+
+    [Fact]
     public void SharedModeRequiresExplicitHostsAndOrigins()
     {
         var policy = new HostingPolicy(

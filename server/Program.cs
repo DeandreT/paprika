@@ -110,6 +110,7 @@ app.Use(
     }
 );
 app.UseOperationsPlatform();
+app.UsePreviewEngineAssets();
 app.UseDefaultFiles();
 app.UseStaticFiles();
 app.MapOpenApi();
