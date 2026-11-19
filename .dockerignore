@@ -1,0 +1,12 @@
+**
+!Dockerfile
+!client/
+!client/package.json
+!client/package-lock.json
+!client/angular.json
+!client/tsconfig*.json
+!client/src/
+!client/src/**
+!server/
+!server/*.cs
+!server/paprika.Api.csproj

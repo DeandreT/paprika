@@ -4,6 +4,8 @@ Local-first document-processing platform with versioned classification workflows
 
 ## Run offline
 
+For the Linux container build, smoke test, runtime settings and release-image contract, see [Running the paprika image](docs/container.md).
+
 Prerequisites: **.NET 10 SDK**, **Node.js 22.22.3+ in the 22.x line** (22.23.4 used here), npm, and PowerShell 7. The frontend uses Angular 22.
 
 On Arch Linux, install `aspnet-runtime` and `aspnet-targeting-pack` alongside `dotnet-sdk`. The API includes native image-processing assets for Windows and Linux.
