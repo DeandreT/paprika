@@ -118,6 +118,11 @@ public sealed class OpenAiProviderTests : IDisposable
     {
         var store = new Store(Config);
         var packet = Worker.Demo(store);
+        packet.Mode = "live";
+        packet.Workflow = WorkflowRegistry.Legacy("live", "gpt-6-luna") with
+        {
+            ProviderProfile = "openai",
+        };
         JsonElement sent = default;
         var providers = new Providers(
             new Settings(Config),

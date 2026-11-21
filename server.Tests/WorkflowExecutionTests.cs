@@ -493,8 +493,11 @@ public sealed class WorkflowExecutionTests : IDisposable
     {
         var store = Store;
         var packet = PacketWithPolicy(new("classifier"), "voucher");
+        packet.Mode = "live";
         packet.Workflow = packet.Workflow! with
         {
+            Mode = "live",
+            ProviderProfile = "jev",
             Model = "pinned-approved-model",
             Instructions = "Inspect the voucher heading",
         };

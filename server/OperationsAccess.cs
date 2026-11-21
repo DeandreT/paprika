@@ -270,6 +270,11 @@ public static class OperationsPlatformRegistration
                             DefaultWorkflow = defaultRef,
                             Stats = catalog.Stats.Where(s => identity.CanRead(s.Id)).ToArray(),
                             ProviderProfiles = [],
+                            CanUpload = false,
+                            ClassifierProviders = ReadableClassifiers(
+                                workflows,
+                                catalog.ClassifierProviders
+                            ),
                             LiveModel = "",
                         }
                     );
@@ -393,6 +398,25 @@ public static class OperationsPlatformRegistration
                 await next();
             }
         );
+
+    private static ClassifierProviderInfo[] ReadableClassifiers(
+        CatalogEntry[] workflows,
+        ClassifierProviderInfo[] providers
+    )
+    {
+        var selected = new HashSet<(string Provider, string Model)>();
+        foreach (var entry in workflows)
+        {
+            if (entry.Workflow is not { Mode: "live" } live)
+                continue;
+            var provider = live.ProviderProfile is null or "default"
+                ? entry.ResolvedClassifierProvider
+                : live.ProviderProfile;
+            if (provider is not null)
+                selected.Add((provider, live.Model));
+        }
+        return providers.Where(p => selected.Contains((p.Id, p.Model))).ToArray();
+    }
 }
 
 public sealed record OperationsPacketPermission(

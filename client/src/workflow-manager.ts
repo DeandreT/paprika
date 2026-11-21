@@ -4,7 +4,7 @@ import { FormsModule } from "@angular/forms";
 import { MatButtonModule } from "@angular/material/button";
 import { firstValueFrom } from "rxjs";
 import { CatalogEntry, CatalogKind, Config, Packet, VersionRef } from "./models";
-import { WorkflowStore, apiError, normalizeEntry, refKey, splitPolicy } from "./workflow-store";
+import { WorkflowStore, apiError, classifierInfo, classifierNames, normalizeEntry, refKey, splitPolicy } from "./workflow-store";
 import { SplitEditorComponent } from "./split-editor";
 import { CapabilityEditorComponent } from "./capability-editor";
 
@@ -48,6 +48,16 @@ export class WorkflowManagerComponent {
   pendingPreview = signal<{ files: File[]; entry: CatalogEntry; key: string } | null>(null);
   identifiers = ["load", "shipment", "order", "bol", "receipt", "mc", "dot", "trailer", "container", "chassis"];
   refKey = refKey;
+  classifierNames = classifierNames;
+  classifier = computed(() => {
+    const entry = this.editor();
+    return entry?.workflow?.mode === "live" ? classifierInfo(entry.workflow, this.store.catalog().classifierProviders, entry.resolvedClassifierProvider) : null;
+  });
+  bindingIssue = computed(() => {
+    if (this.editor()?.classifierBindingNeedsRepair) return "Choose a classifier to replace the copied binding, then save the draft.";
+    const classifier = this.classifier();
+    return classifier && !classifier.modelMatches ? classifier.status : "";
+  });
   entries = computed(() => this.store.catalog().entries.filter(e => e.kind === this.tab()));
   typeIds = computed(() => [...new Set(this.store.catalog().entries.filter(e => e.kind === "type").map(e => e.id))]);
   releases = computed(() => this.store.catalog().entries.filter(e => e.kind === "release"));
@@ -66,7 +76,7 @@ export class WorkflowManagerComponent {
       }
     }
     if (e.workflow) {
-      if (!e.workflow.model.trim()) issues.push("Enter the approved model for the selected mode.");
+      if (this.bindingIssue()) issues.push(this.bindingIssue());
       if (!this.selectedRelease()) issues.push("Choose a document-type release.");
       else if (this.selectedRelease()?.status !== "published") issues.push("Publish the selected release before publishing this workflow.");
       if (this.selectedTypes().some(t => t.status !== "published")) issues.push("Publish all referenced document type versions before publishing this workflow.");
@@ -90,7 +100,7 @@ export class WorkflowManagerComponent {
     }
     if (step === 1) {
       const issues = this.selectedRelease() ? [] : ["Choose a document type release."];
-      if (!entry.workflow.model.trim()) issues.push("An approved model is required for this mode.");
+      if (this.bindingIssue()) issues.push(this.bindingIssue());
       return issues;
     }
     if (step === 2) {
@@ -163,10 +173,24 @@ export class WorkflowManagerComponent {
     this.editor.set({ ...entry }); this.markDirty();
   }
   chooseMode(mode: "simulation" | "live") {
-    const workflow = this.editor()?.workflow;
-    if (!workflow) return;
+    const entry = this.editor();
+    const workflow = entry?.workflow;
+    if (!entry || !workflow) return;
+    delete entry.classifierBindingNeedsRepair;
     workflow.mode = mode;
-    workflow.model = mode === "simulation" ? "local-simulation-1" : this.store.catalog().liveModel;
+    workflow.providerProfile = mode === "simulation" ? "default" : "";
+    workflow.model = mode === "simulation" ? "local-simulation-1" : "";
+    this.markDirty();
+  }
+  chooseClassifier(id: string) {
+    const entry = this.editor();
+    const workflow = entry?.workflow;
+    if (!entry || workflow?.mode !== "live" || this.locked()) return;
+    const provider = this.store.catalog().classifierProviders.find(p => p.id === id);
+    if (!provider) return;
+    workflow.providerProfile = provider.id;
+    workflow.model = provider.model;
+    delete entry.classifierBindingNeedsRepair;
     this.markDirty();
   }
   toggleIdentifier(kind: string, required: boolean, checked: boolean) {
@@ -181,7 +205,11 @@ export class WorkflowManagerComponent {
   async save() {
     const entry = this.editor(); if (!entry || this.locked()) return;
     const body = structuredClone(entry);
+    delete body.resolvedClassifierProvider;
+    delete body.classifierBindingNeedsRepair;
     if (!body.name.trim()) { this.error.set("Enter a name before saving."); return; }
+    if (this.bindingIssue()) { this.error.set(this.bindingIssue()); return; }
+    if (body.workflow?.mode === "live") body.workflow.providerProfile = this.classifier()!.id!;
     if (body.documentType) body.documentType.keywords = this.keywords.split(/\r?\n/).map(k => k.trim()).filter(Boolean);
     if (this.isNew() && !body.id.trim()) delete (body as Partial<CatalogEntry>).id;
     this.busy.set(true); this.error.set("");

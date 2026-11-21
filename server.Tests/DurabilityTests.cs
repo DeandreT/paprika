@@ -28,6 +28,16 @@ public sealed class DurabilityTests : IDisposable
 
     private Store NewStore() => new(Config);
 
+    // Intake has valid settings; the worker uses a synthetic, non-network transport.
+    private IConfiguration LiveConfig()
+    {
+        var config = Config;
+        config["paprika:AzureEndpoint"] = "https://ocr.example.test";
+        config["paprika:AzureKey"] = "test";
+        config["paprika:JevApiKey"] = "test";
+        return config;
+    }
+
     private IHost Host(Store store) =>
         MessagingTestHost.Create(
             store,
@@ -343,16 +353,24 @@ public sealed class DurabilityTests : IDisposable
     [Fact]
     public async Task FailureCheckpointBeforeDeadLetterWriteRecoversWithoutResurrection()
     {
-        var store = NewStore();
-        var p = new Packet { Mode = "live" }; // No configured providers: permanent, sanitized failure.
+        var config = LiveConfig();
+        var store = new Store(config);
+        var p = new Packet { Mode = "live" };
         AddFixtureSource(store, p);
-        using (var host = Host(store))
+        p.Sources[0].OperationUrl = "https://ocr.example.test/operations/test";
+        using var transport = new FailingProvider(HttpStatusCode.Unauthorized, p);
+        using (
+            var host = MessagingTestHost.Create(
+                store,
+                new Providers(new Settings(config), store, transport)
+            )
+        )
         {
             await host.StartAsync();
             Sql(
                 "CREATE TRIGGER stop_fault_write BEFORE INSERT ON wolverine_dead_letters BEGIN SELECT RAISE(ABORT, 'test crash window'); END;"
             );
-            store.Accept(p, null);
+            Assert.Equal(200, store.Accept(p, null).Code);
             await Until(() => store.Get(p.Id)!.Status == "failed");
             await host.StopAsync();
             Assert.Equal(0, Count("wolverine_dead_letters"));
@@ -392,12 +410,18 @@ public sealed class DurabilityTests : IDisposable
     [Fact]
     public async Task PacketReplayRejectsCancelledApprovedAndStaleGenerations()
     {
-        var store = NewStore();
-        using var host = Host(store);
-        await host.StartAsync();
+        var config = LiveConfig();
+        var store = new Store(config);
         var p = new Packet { Mode = "live" };
         AddFixtureSource(store, p);
-        store.Accept(p, null);
+        p.Sources[0].OperationUrl = "https://ocr.example.test/operations/test";
+        using var transport = new FailingProvider(HttpStatusCode.Unauthorized, p);
+        using var host = MessagingTestHost.Create(
+            store,
+            new Providers(new Settings(config), store, transport)
+        );
+        await host.StartAsync();
+        Assert.Equal(200, store.Accept(p, null).Code);
         var operations = host.Services.GetRequiredService<MessagingOperations>();
         await Until(() =>
             operations.Read(default).GetAwaiter().GetResult().DeadLetters.Length == 1

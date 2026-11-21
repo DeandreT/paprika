@@ -26,7 +26,7 @@
 </div>
 }
 @if (workflows.error()) { <div class="alert error" role="alert">{{ workflows.error() }} <button mat-button (click)="workflows.load()" [disabled]="workflows.loading()">Retry workflow loading</button></div> }
-<app-workflow-manager id="workflow-manager" [hidden]="!managerOpen()" [config]="config()" [reviewBusy]="busy()" [reviewDirty]="dirty()" (dirtyChanged)="catalogDirty.set($event)" (packetCreated)="previewCreated($event)" />
+@if (config()) { <app-workflow-manager id="workflow-manager" [hidden]="!managerOpen()" [config]="config()" [reviewBusy]="busy()" [reviewDirty]="dirty()" (dirtyChanged)="catalogDirty.set($event)" (packetCreated)="previewCreated($event)" /> }
 @if (platformOpen() && !managerOpen() && classificationAdvanced()) {
 <section id="platform-tools" class="catalog-manager" aria-label="Document processing platform" data-testid="platform-tools">
   <nav class="catalog-tabs" aria-label="Platform tools">
@@ -74,8 +74,9 @@
         <option value="">Default: {{ workflows.defaultEntry()?.name || 'Unavailable' }}{{ workflows.defaultEntry() ? ' v' + workflows.defaultEntry()!.version : '' }}</option>
         @for (workflow of workflows.published(); track refKey(workflow)) { <option [value]="refKey(workflow)">{{ workflow.name }} · v{{ workflow.version }} · {{ workflow.workflow?.mode }}</option> }
       </select></label>
+      <p class="small" data-testid="workflow-upload-status" role="status">{{ uploadCheck().text }}</p>
       <button mat-flat-button (click)="chooseUpload()" [disabled]="!uploadReady() || busy() || !!pendingUpload()">Upload packet</button>
-      <button mat-button data-testid="demo-button" (click)="demo()" [disabled]="busy() || loading() || !!pendingUpload()">Try demo packet</button>
+      <button mat-button data-testid="demo-button" (click)="demo()" [disabled]="!workflows.catalog().canUpload || busy() || loading() || !!pendingUpload()">Try demo packet</button>
     </div>
     <div class="section-heading">
       <h2>Packet inbox</h2>
@@ -157,23 +158,6 @@
       {{ visiblePackets().length }} of {{ packets().length }} packets
     </p>
     <div class="setup">
-      @if (selectedWorkflow()?.workflow?.mode === 'simulation') {
-      <p class="small">Simulation · Local rules, no OCR</p>
-      } @else {
-      <p>
-        <span class="dot" [class.ready]="config()?.ocrConfigured"></span>OCR {{
-        config()?.ocrConfigured ? "configured" : "not configured" }}
-      </p>
-      <p>
-        <span class="dot" [class.ready]="config()?.classifierConfigured"></span
-        >Jev {{ config()?.classifierConfigured ? "configured" : "not configured"
-        }}
-      </p>
-      @if (!uploadReady()) {
-      <p class="small muted">
-        Configure OCR and Jev to enable live uploads.
-      </p>
-      } }
       <span class="small muted"
         >PDF, PNG, JPG · {{ config()?.maxUploadMb ?? 25 }} MB per upload</span
       >

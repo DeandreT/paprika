@@ -373,6 +373,8 @@ public sealed class BackendTests : IDisposable
     {
         var s = Store;
         var p = Ready();
+        p.Mode = "live";
+        p.Workflow = WorkflowRegistry.Legacy("live", "jev-latest") with { ProviderProfile = "jev" };
         var providers = new Providers(
             new Settings(Config),
             s,
