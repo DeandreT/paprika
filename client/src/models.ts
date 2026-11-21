@@ -72,6 +72,8 @@ export interface WorkflowConfig {
   capabilities?: WorkflowCapabilities | null;
 }
 export interface CatalogEntry extends VersionRef {
+  resolvedClassifierProvider?: ClassifierId;
+  classifierBindingNeedsRepair?: boolean;
   kind: CatalogKind;
   revision: number;
   status: "draft" | "published" | "archived";
@@ -84,12 +86,16 @@ export interface CatalogEntry extends VersionRef {
 export interface WorkflowStats extends VersionRef {
   packets: number; review: number; failed: number; approved: number; corrections: number;
 }
+export type ClassifierId = "jev" | "openai";
+export interface ClassifierProvider { id: ClassifierId; model: string; configured: boolean }
 export interface WorkflowCatalog {
+  canUpload: boolean;
   liveModel: string;
   entries: CatalogEntry[];
   defaultWorkflow: VersionRef | null;
   policies: string[];
   providerProfiles: string[];
+  classifierProviders: ClassifierProvider[];
   stats: WorkflowStats[];
 }
 export interface WorkflowSnapshot extends VersionRef {

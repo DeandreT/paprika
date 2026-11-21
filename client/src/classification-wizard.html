@@ -30,13 +30,13 @@
         <option value="">Default: {{ w.workflows.defaultEntry()?.name || 'Unavailable' }}</option>
         @for (workflow of w.workflows.published(); track workflow.id + '@' + workflow.version) { <option [value]="w.refKey(workflow)">{{ workflow.name }} · v{{ workflow.version }}</option> }
       </select></label>
-      <p class="small muted">{{ w.selectedWorkflow()?.workflow?.mode === 'simulation' ? 'Simulation · Local rules, no OCR' : 'Live classification' }} · PDF, PNG, JPG · {{ w.config()?.maxUploadMb ?? 25 }} MB</p>
+      <p class="small" data-testid="workflow-upload-status" role="status">{{ w.uploadCheck().text }}</p>
+      <p class="small muted">PDF, PNG, JPG · {{ w.config()?.maxUploadMb ?? 25 }} MB</p>
       <div class="catalog-actions">
         <button mat-flat-button (click)="w.chooseUpload()" [disabled]="!w.uploadReady() || w.busy() || !!w.pendingUpload()">Upload packet</button>
-        <button mat-stroked-button data-testid="demo-button" (click)="w.demo()" [disabled]="w.busy() || w.loading() || !!w.pendingUpload()">Try demo packet</button>
+        <button mat-stroked-button data-testid="demo-button" (click)="w.demo()" [disabled]="!w.workflows.catalog().canUpload || w.busy() || w.loading() || !!w.pendingUpload()">Try demo packet</button>
         <button mat-button data-testid="existing-packets" (click)="choosingPacket.set(true)" [disabled]="w.busy() || !!w.pendingUpload()">Open existing packet ({{ w.packets().length }})</button>
       </div>
-      @if (!w.uploadReady() && !w.loading()) { <p class="small muted">Choose an available workflow or configure providers in Advanced.</p> }
     } @else if (w.packet(); as packet) {
       @if (!reviewing()) {
       <div class="section-heading guided-packet-heading"><h3 data-testid="packet-name">{{ packet.name }}</h3><span class="badge" [class.approved]="packet.status === 'approved'">{{ packet.status }}</span></div>

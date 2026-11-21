@@ -18,13 +18,100 @@ public sealed class Settings(IConfiguration config)
     public string AzureKey => config["paprika:AzureKey"] ?? "";
     public string JevKey => config["paprika:JevApiKey"] ?? "";
 
-    // OPENAI_API_KEY is injected by with-local-secrets; Jev and Azure take precedence when configured.
+    // OPENAI_API_KEY is injected by with-local-secrets.
     public string OpenAiKey => config["paprika:OpenAiApiKey"] ?? config["OPENAI_API_KEY"] ?? "";
     public bool OpenAiConfigured => !string.IsNullOrWhiteSpace(OpenAiKey);
-    public bool UseOpenAiClassifier => string.IsNullOrWhiteSpace(JevKey) && OpenAiConfigured;
-    public string Model =>
-        config["paprika:JevModel"]
-        ?? (UseOpenAiClassifier ? config["paprika:OpenAiModel"] ?? "gpt-6-luna" : "jev-latest");
+
+    // Used only to choose an initial binding where no provider or model was ever recorded.
+    public string DefaultClassifierProvider =>
+        string.IsNullOrWhiteSpace(JevKey) && OpenAiConfigured ? "openai" : "jev";
+    public string Model => ClassifierModel(DefaultClassifierProvider);
+
+    public string ClassifierModel(string provider) =>
+        provider switch
+        {
+            "jev" => config["paprika:JevModel"] ?? "jev-latest",
+            "openai" => config["paprika:OpenAiModel"] ?? "gpt-6-luna",
+            _ => throw new WorkflowException(400, "Unknown classifier provider."),
+        };
+
+    public bool ClassifierReady(string provider) =>
+        provider switch
+        {
+            "jev" => !string.IsNullOrWhiteSpace(JevKey),
+            "openai" => OpenAiConfigured,
+            _ => false,
+        };
+
+    public string ResolveClassifierProvider(string? profile, string? model)
+    {
+        if (string.IsNullOrWhiteSpace(model))
+            throw new WorkflowException(400, "A classifier model is required.");
+        string? family =
+            model.StartsWith("jev-", StringComparison.OrdinalIgnoreCase) ? "jev"
+            : model.StartsWith("gpt-", StringComparison.OrdinalIgnoreCase) ? "openai"
+            : null;
+        if (profile is "jev" or "openai")
+        {
+            if (family is not null && family != profile)
+                throw new WorkflowException(
+                    400,
+                    "Model belongs to a different classifier provider."
+                );
+            return profile;
+        }
+        if (profile is not (null or "default"))
+            throw new WorkflowException(400, "Unknown classifier provider.");
+
+        // Historical snapshots pinned a model but had no explicit provider. Credentials are
+        // deliberately not evidence: removing a key must never redirect an existing model.
+        bool jev = family == "jev" || model == ClassifierModel("jev");
+        bool openAi = family == "openai" || model == ClassifierModel("openai");
+        if (jev == openAi)
+            throw new WorkflowException(
+                400,
+                "Cannot determine the classifier provider for this model. Select a workflow with an explicit provider."
+            );
+        return jev ? "jev" : "openai";
+    }
+
+    public string RequireLiveClassifier(string? profile, string? model)
+    {
+        var provider = ResolveClassifierProvider(profile, model);
+        if (model != ClassifierModel(provider))
+            throw new WorkflowException(
+                400,
+                $"Model must match the approved model for the {provider} classifier."
+            );
+        RequireClassifierKey(provider);
+        if (!OcrConfigured)
+            throw new WorkflowException(
+                400,
+                "Live processing requires configured OCR credentials."
+            );
+        return provider;
+    }
+
+    internal (string? Profile, string Model) ClassifierBinding(Packet packet)
+    {
+        if (packet.Workflow is { } snapshot)
+            return (snapshot.ProviderProfile, snapshot.Model);
+        // Some pre-workflow runs already recorded a model after classifying a page.
+        if (packet.Processing?.Model is { } recorded)
+            return (null, recorded);
+        var provider = DefaultClassifierProvider;
+        return (provider, ClassifierModel(provider));
+    }
+
+    internal void RequireClassifierKey(string provider)
+    {
+        if (!ClassifierReady(provider))
+            throw new WorkflowException(
+                400,
+                $"The {provider} classifier requires configured credentials."
+            );
+    }
+
     public string OpenAiBaseUrl =>
         (config["paprika:OpenAiBaseUrl"] ?? "https://api.openai.com/v1").TrimEnd('/') + "/";
     public string OpenAiReadModel => config["paprika:OpenAiReadModel"] ?? "gpt-6-luna";
@@ -234,8 +321,23 @@ public sealed class Providers(Settings settings, Store store, IHttpClientFactory
         EnsureActive(packet, ct);
         var workflow = packet.EffectiveWorkflow;
         string promptVersion = workflow.LegacyRules ? PromptVersion : "paperwork-workflow-1";
-        // Historical runs predate model pinning; preserve their configured-provider behavior.
-        string requestedModel = packet.Workflow?.Model ?? settings.Model;
+        var (profile, requestedModel) = settings.ClassifierBinding(packet);
+        var provider = settings.ResolveClassifierProvider(profile, requestedModel);
+        if (packet.Workflow is null && packet.Mode == "live")
+        {
+            // Checkpoint once, before any outbound request. A failed/resumed pre-workflow
+            // run must not choose a different provider on its next page or retry.
+            workflow = WorkflowRegistry.WithHash(
+                workflow with
+                {
+                    ProviderProfile = provider,
+                    Model = requestedModel,
+                }
+            );
+            packet.Workflow = workflow;
+            store.Save(packet);
+        }
+        settings.RequireClassifierKey(provider);
         var criteria = workflow.Types.ToDictionary(
             t => t.Id,
             t =>
@@ -286,18 +388,27 @@ public sealed class Providers(Settings settings, Store store, IHttpClientFactory
                 },
             },
         };
-        var (choice, confidence, start, usedModel) = settings.UseOpenAiClassifier
-            ? await OpenAiClassify(
-                packet,
-                page,
-                previous,
-                workflow,
-                criteria,
-                requestedModel,
-                promptVersion,
-                ct
-            )
-            : await JevClassify(packet, page, payload, workflow, requestedModel, promptVersion, ct);
+        var (choice, confidence, start, usedModel) =
+            provider == "openai"
+                ? await OpenAiClassify(
+                    packet,
+                    page,
+                    previous,
+                    workflow,
+                    criteria,
+                    requestedModel,
+                    promptVersion,
+                    ct
+                )
+                : await JevClassify(
+                    packet,
+                    page,
+                    payload,
+                    workflow,
+                    requestedModel,
+                    promptVersion,
+                    ct
+                );
         page.PredictedType = choice;
         page.Confidence = confidence;
         page.StartProbability = previous is null || previous.SourceId != page.SourceId ? 1 : start;
@@ -352,6 +463,7 @@ public sealed class Providers(Settings settings, Store store, IHttpClientFactory
                 {
                     promptVersion,
                     requestedModel,
+                    provider = "jev",
                     workflow = new
                     {
                         workflow.Id,
@@ -577,6 +689,7 @@ public sealed class Providers(Settings settings, Store store, IHttpClientFactory
                 {
                     promptVersion,
                     requestedModel,
+                    provider = "openai",
                     api = "openai-decisions",
                     workflow = new
                     {

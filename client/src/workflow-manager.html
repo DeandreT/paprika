@@ -89,17 +89,22 @@
                 @for (release of releases(); track release.id + '@' + release.version) { <option [value]="refKey(release)">{{ release.name }} · v{{ release.version }} · {{ release.status }}</option> }
               </select></label>
               <label>Workflow mode<select [ngModel]="workflow.mode" (ngModelChange)="chooseMode($event)"><option value="simulation">Simulation</option><option value="live">Live</option></select></label>
-              @if (!guided()) {
-              <label>Provider profile<select [(ngModel)]="workflow.providerProfile" (ngModelChange)="markDirty()"><option value="default">Server default</option></select></label>
-              <label>Model<select [(ngModel)]="workflow.model" (ngModelChange)="markDirty()">
-                @if (workflow.mode === 'simulation') { <option value="local-simulation-1">local-simulation-1</option> }
-                @else { <option [value]="store.catalog().liveModel">{{ store.catalog().liveModel || 'Approved live model unavailable — reload catalog' }}</option> }
-                @if (workflow.model && workflow.model !== (workflow.mode === 'simulation' ? 'local-simulation-1' : store.catalog().liveModel)) { <option [value]="workflow.model">{{ workflow.model }} (previous configuration)</option> }
-              </select></label>
+              @if (classifier(); as c) {
+                <label>Classifier<select data-testid="workflow-classifier" [ngModel]="entry.classifierBindingNeedsRepair ? '' : c.id || ''" (ngModelChange)="chooseClassifier($event)">
+                  <option value="" disabled>{{ workflow.model && !entry.classifierBindingNeedsRepair ? 'Unresolved classifier' : 'Choose a classifier' }}</option>
+                  @if (c.id && !c.provider) { <option [value]="c.id" disabled>{{ c.name }} · Unavailable</option> }
+                  @for (p of store.catalog().classifierProviders; track p.id) { <option [value]="p.id">{{ classifierNames[p.id] }} · {{ p.configured ? 'Configured' : 'Not configured' }}</option> }
+                </select></label>
               }
             </div>
+            @if (classifier(); as c) {
+              <p class="small" role="status" data-testid="workflow-classifier-status">{{ entry.classifierBindingNeedsRepair ? 'Copied binding: ' + c.status : c.status }}</p>
+              @if (entry.classifierBindingNeedsRepair) { <p class="small muted">{{ bindingIssue() }}</p> }
+              @if (c.provider && !c.modelMatches && !locked()) { <button mat-stroked-button (click)="chooseClassifier(c.provider.id)">Use configured model: {{ c.provider.model }}</button> }
+              <p class="small muted">This workflow keeps its selected classifier and model when other provider keys are added.</p>
+            } @else { <p class="small muted">Simulation · Local rules, no OCR · {{ workflow.model }}</p> }
             @if (guided()) {
-              <p class="small muted">{{ selectedTypes().length }} document types · {{ workflow.mode === 'simulation' ? 'Local rules, no OCR' : 'Live providers' }}</p>
+              <p class="small muted">{{ selectedTypes().length }} document types</p>
               <ul class="wizard-type-list">@for (type of selectedTypes(); track type.id) { <li>{{ type.name }}</li> }</ul>
             }
             }
@@ -125,7 +130,7 @@
         @if (guided() && atFinish() && entry.workflow; as workflow) {
           <section class="wizard-summary" aria-label="Workflow summary">
             <div><h4>Basics</h4><p>{{ entry.name || 'Unnamed workflow' }}</p>@if (entry.description) { <p class="small muted">{{ entry.description }}</p> }<button mat-button (click)="goToStep(0)" [disabled]="busy() || !!pendingPreview()">Edit basics</button></div>
-            <div><h4>Documents</h4><p>{{ selectedRelease()?.name || 'No release selected' }} · {{ workflow.mode }}</p><button mat-button (click)="goToStep(1)" [disabled]="busy() || !!pendingPreview()">Edit documents</button></div>
+            <div><h4>Documents</h4><p>{{ selectedRelease()?.name || 'No release selected' }} · {{ workflow.mode }}</p><p class="small">{{ classifier()?.status || 'Simulation · Local rules, no OCR' }}</p><button mat-button (click)="goToStep(1)" [disabled]="busy() || !!pendingPreview()">Edit documents</button></div>
             <div><h4>Review rules</h4><p>Split: {{ workflow.defaultSplit.mode }}</p><p class="small">Required identifiers: {{ workflow.requiredIdentifierKinds.join(', ') || 'None' }}</p><button mat-button (click)="goToStep(2)" [disabled]="busy() || !!pendingPreview()">Edit review rules</button></div>
             <div><h4>Additional tools</h4><p>{{ configuredTools().join(', ') || 'None configured' }}</p><button mat-button (click)="setAdvanced(true)" [disabled]="busy() || !!pendingPreview()">Advanced settings</button></div>
           </section>
@@ -139,7 +144,7 @@
         }
         <div class="catalog-actions">
           @if (entry.status === 'draft') {
-            <button mat-flat-button data-testid="catalog-save" (click)="save()" [disabled]="locked() || !dirty()">Save draft definition</button>
+            <button mat-flat-button data-testid="catalog-save" (click)="save()" [disabled]="locked() || !dirty() || !!bindingIssue()">Save draft definition</button>
             @if (atFinish()) {
             <button mat-stroked-button data-testid="catalog-publish" (click)="action('publish')" [disabled]="busy() || dirty() || isNew() || !!pendingPreview() || publicationIssues().length > 0">Publish version</button>
             }
@@ -159,7 +164,7 @@
             <ol class="stage-list">
               <li><strong>Intake</strong><span>PDF, PNG, JPG · {{ config()?.maxUploadMb ?? 25 }} MB · exact workflow snapshot</span></li>
               <li><strong>Text extraction</strong><span>{{ workflow.mode === 'simulation' ? 'Local PDF text. Scanned pages and images go to review.' : config()?.ocrConfigured ? 'OCR provider configured.' : 'OCR provider needs configuration.' }}</span></li>
-              <li><strong>Classification</strong><span>{{ selectedRelease()?.name || 'Choose a release' }} · {{ selectedTypes().length }} pinned types · {{ workflow.mode === 'simulation' ? 'Keyword rules' : config()?.classifierConfigured ? 'Live provider configured' : 'Classifier provider needs configuration' }}</span></li>
+              <li><strong>Classification</strong><span>{{ selectedRelease()?.name || 'Choose a release' }} · {{ selectedTypes().length }} pinned types · {{ classifier()?.status || 'Local keyword rules' }}</span></li>
               <li><strong>Document splitting</strong><span>Default: {{ workflow.defaultSplit.mode }}. Type overrides apply within source files.</span></li>
               <li><strong>Identifier extraction</strong><span>{{ workflow.identifierKinds.join(', ') || 'No candidate kinds selected' }} · Required: {{ workflow.requiredIdentifierKinds.join(', ') || 'None' }}</span></li>
               <li><strong>Quality routing and approval</strong><span>Default manual review. Configured policies apply evidence, model evaluation and independent QA sampling.</span></li>

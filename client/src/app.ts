@@ -16,7 +16,7 @@ import { PagePreviewComponent } from "./pdf-preview";
 import { signalPreviewIntent, cancelPreviewIntent } from "./preview-backend";
 import { DeliveryComponent } from "./delivery";
 import { OperationsComponent } from "./operations";
-import { WorkflowStore, refKey, splitPolicy } from "./workflow-store";
+import { WorkflowStore, classifierInfo, refKey, splitPolicy } from "./workflow-store";
 import { WorkflowManagerComponent } from "./workflow-manager";
 import { QualityPanelComponent } from "./quality-panel";
 import { ReferencePanelComponent } from "./reference-panel";
@@ -167,7 +167,7 @@ export class AppComponent {
     "failed",
     "cancelled",
   ];
-  pendingUpload = signal<{ files: File[]; key: string; workflow: VersionRef | null; workflowLabel: string } | null>(null);
+  pendingUpload = signal<{ files: File[]; key: string; workflow: VersionRef; workflowLabel: string } | null>(null);
   uploadUncertain = signal(false);
   identifierCandidates = computed(() => {
     const pages = this.selectedDoc()?.pageIds ?? [];
@@ -212,13 +212,18 @@ export class AppComponent {
   selectedDoc = computed(() =>
     this.documents().find((d) => d.pageIds.includes(this.selectedId())),
   );
-  uploadReady = computed(
-    () =>
-      !!this.selectedWorkflow() && (this.selectedWorkflow()?.workflow?.mode === "simulation" ||
-      (!!this.config()?.ocrConfigured &&
-        !!this.config()?.classifierConfigured &&
-        this.selectedWorkflow()?.workflow?.mode === "live")),
-  );
+  uploadCheck = computed(() => {
+    const entry = this.selectedWorkflow(), config = this.config();
+    if (this.workflows.loading() || this.loading()) return { ready: false, text: "Checking workflow readiness…" };
+    if (!entry?.workflow || !config || this.workflows.error()) return { ready: false, text: "Workflow unavailable for upload." };
+    const { classifierProviders, canUpload } = this.workflows.catalog();
+    const classifier = entry.workflow.mode === "live" ? classifierInfo(entry.workflow, classifierProviders, entry.resolvedClassifierProvider) : null;
+    const ready = canUpload && (!classifier || (classifier.ready && config.ocrConfigured));
+    const details = classifier ? `${classifier.status} · OCR ${config.ocrConfigured ? "configured" : "not configured"}` : "Simulation · Local rules, no OCR";
+    const status = !canUpload ? "Administrator access required to upload." : ready ? "Ready to upload." : "Live upload unavailable.";
+    return { ready, text: `${details}. ${status}` };
+  });
+  uploadReady = computed(() => this.uploadCheck().ready);
   editable = computed(
     () =>
       !!this.packet() &&
@@ -255,6 +260,7 @@ export class AppComponent {
     } catch (e) {
       if (e instanceof HttpErrorResponse && (e.status === 401 || e.status === 403)) {
         this.config.set(null);
+        this.workflows.clear();
         this.packets.set([]);
         this.packet.set(null);
         this.documents.set([]);
@@ -351,7 +357,7 @@ export class AppComponent {
     }
   }
   async demo() {
-    if (this.busy() || !this.mayDiscard()) return;
+    if (!this.workflows.catalog().canUpload || this.busy() || !this.mayDiscard()) return;
     this.busy.set(true);
     this.error.set("");
     this.notice.set("");
@@ -401,7 +407,8 @@ export class AppComponent {
     }
     if (!this.mayDiscard()) return;
     const selected = this.selectedWorkflow();
-    this.pendingUpload.set({ files, key: crypto.randomUUID(), workflow: this.workflowSelection() && selected ? { id: selected.id, version: selected.version } : null, workflowLabel: selected ? `${selected.name} v${selected.version}` : "Server default" });
+    if (!selected) return;
+    this.pendingUpload.set({ files, key: crypto.randomUUID(), workflow: { id: selected.id, version: selected.version }, workflowLabel: `${selected.name} v${selected.version}` });
     await this.submitUpload();
   }
   async retryUpload() {
@@ -413,10 +420,8 @@ export class AppComponent {
     if (!submission || this.busy()) return;
     const data = new FormData();
     submission.files.forEach((f) => data.append("files", f));
-    if (submission.workflow) {
-      data.append("workflowId", submission.workflow.id);
-      data.append("workflowVersion", String(submission.workflow.version));
-    }
+    data.append("workflowId", submission.workflow.id);
+    data.append("workflowVersion", String(submission.workflow.version));
     this.busy.set(true);
     this.error.set("");
     this.notice.set("");

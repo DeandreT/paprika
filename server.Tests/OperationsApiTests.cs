@@ -150,6 +150,66 @@ public sealed class OperationsApiTests
     }
 
     [Fact]
+    public async Task SharedCatalogReportsOnlyClassifiersUsedByReadablePublishedLiveWorkflows()
+    {
+        await using var factory = new OperationsFactory();
+        using var client = factory.CreateClient();
+        client.DefaultRequestHeaders.Authorization = new("Bearer", Token);
+        var registry = factory.Services.GetRequiredService<Store>().Workflows;
+        var all = registry.Catalog();
+        Assert.True(all.CanUpload);
+        var jev = all.ClassifierProviders.Single(p => p.Id == "jev");
+        var openai = all.ClassifierProviders.Single(p => p.Id == "openai");
+        var copy = registry.Clone("workflow", "general-logistics", 1, 1, "Outside the allowlist");
+        void SaveLive(CatalogEntry entry, ClassifierProviderInfo classifier)
+        {
+            entry = registry.Edit(
+                entry.Kind,
+                entry.Id,
+                entry.Version,
+                entry with
+                {
+                    Workflow = entry.Workflow! with
+                    {
+                        Mode = "live",
+                        ProviderProfile = classifier.Id,
+                        Model = classifier.Model,
+                    },
+                }
+            );
+            registry.Publish(entry.Kind, entry.Id, entry.Version, entry.Revision);
+        }
+        SaveLive(copy, openai);
+        SaveLive(registry.NewVersion("workflow", "general-logistics", 1, 1), jev);
+        // Older installations may be missing the profile entirely on a published live workflow.
+        using (
+            var c = new Microsoft.Data.Sqlite.SqliteConnection(
+                factory.Services.GetRequiredService<Store>().ConnectionString
+            )
+        )
+        {
+            c.Open();
+            using var q = c.CreateCommand();
+            q.CommandText = """
+                UPDATE workflow_catalog SET json=json_remove(json,'$.workflow.providerProfile')
+                WHERE kind='workflow' AND id='general-logistics' AND version=2
+                """;
+            Assert.Equal(1, q.ExecuteNonQuery());
+        }
+        var limited = (await client.GetFromJsonAsync<WorkflowCatalogResponse>("/api/workflows"))!;
+        Assert.Equal(jev, Assert.Single(limited.ClassifierProviders));
+        Assert.Equal(
+            jev.Id,
+            limited
+                .Entries.Single(e => e.Kind == "workflow" && e.Version == 2)
+                .ResolvedClassifierProvider
+        );
+        Assert.False(limited.CanUpload);
+        Assert.Empty(limited.ProviderProfiles);
+        Assert.Empty(limited.LiveModel);
+    }
+
+    [Fact]
     public async Task CookieSignInAuthenticatesExistingApisAndSignOutRevokesBrowserCookie()
     {
         await using var factory = new OperationsFactory();
