@@ -11,6 +11,7 @@ builder.Services.Configure<FormOptions>(o => o.MultipartBodyLengthLimit = 26 * 1
 builder.Services.AddSingleton<Store>();
 builder.Services.AddSingleton<Settings>();
 builder.Services.AddSingleton<Providers>();
+builder.Services.AddSingleton<ExtractionAi>();
 builder.Services.AddSingleton<JobCoordinator>();
 builder.Services.AddDeliverySimulation();
 builder.Services.AddApiDescription();

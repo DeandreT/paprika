@@ -12,7 +12,11 @@ public sealed record ExtractionField(
     string Kind = "text",
     string? Pattern = null,
     string? Label = null,
-    bool Required = false
+    bool Required = false,
+    // Omitted when null so existing definition hashes stay unchanged.
+    [property: System.Text.Json.Serialization.JsonIgnore(
+        Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull
+    )] string? Description = null
 );
 
 public sealed record ExtractionTable(
@@ -216,14 +220,16 @@ public static class ExtractionPlatform
                 string.IsNullOrWhiteSpace(f.Name)
                 || f.Name.Length > 100
                 || f.Kind is not ("text" or "number" or "date" or "boolean")
-                || (f.Pattern is null) == (f.Label is null)
+                || new[] { f.Pattern, f.Label, f.Description }.Count(x => x != null) != 1
                 || f.Label?.Length > 100
                 || f.Pattern?.Length > 1000
+                || f.Description?.Length > 500
                 || (f.Label != null && string.IsNullOrWhiteSpace(f.Label))
                 || (f.Pattern != null && string.IsNullOrWhiteSpace(f.Pattern))
+                || (f.Description != null && string.IsNullOrWhiteSpace(f.Description))
             )
         )
-            return "Fields need unique names, a supported kind, and one bounded pattern or label.";
+            return "Fields need unique names, a supported kind, and one bounded pattern, label or AI description.";
         try
         {
             foreach (var f in d.Fields.Where(f => f.Pattern != null))
@@ -364,7 +370,11 @@ public static class ExtractionPlatform
         && page.Text.Substring(e.Offset, e.Length) == e.Text
         && ExtractionStorage.TextHash(page.Text) == e.TextSha256;
 
-    public static ExtractionRun Extract(Packet packet, ExtractionDefinition definition)
+    public static ExtractionRun Extract(
+        Packet packet,
+        ExtractionDefinition definition,
+        IReadOnlyDictionary<string, ExtractionAiAnswer>? ai = null
+    )
     {
         if (ValidateDefinition(definition) is string error)
             throw new ArgumentException(error);
@@ -379,6 +389,17 @@ public static class ExtractionPlatform
             var fields = definition
                 .Fields.Select(f =>
                 {
+                    if (f.Description != null)
+                        return ExtractionAi.Ground(
+                            f,
+                            pages,
+                            (
+                                ai?.GetValueOrDefault(doc.Id)
+                                ?? throw new ArgumentException(
+                                    "AI field extraction has not run for this document."
+                                )
+                            ).Fields.GetValueOrDefault(f.Name)
+                        );
                     var evidence = new List<ExtractionEvidence>();
                     var pattern = f.Pattern
                         ?? Regex.Escape(f.Label!) + @"\s*[:=]\s*(?<value>[^\r\n]+)";
@@ -565,6 +586,11 @@ public static class ExtractionPlatform
         {
             // Extract only missing/invalidated documents. Never overwrite a carried human correction.
             var missing = documents.Where(d => !reusable.ContainsKey(d.Id)).ToList();
+            var answers = ExtractionAi.Load(c, tx, packet, policy.Definition!);
+            // Documents still waiting for an AI answer stay uncovered, which blocks approval until
+            // the async pipeline or a manual extraction run asks the model.
+            if (ExtractionAi.Uses(policy.Definition!))
+                missing = missing.Where(d => answers.ContainsKey(d.Id)).ToList();
             var subset = new Packet
             {
                 Id = packet.Id,
@@ -573,14 +599,15 @@ public static class ExtractionPlatform
                 Documents = missing,
                 Pages = packet.Pages,
             };
-            var extracted = Extract(subset, policy.Definition!);
+            var extracted = Extract(subset, policy.Definition!, answers);
             run = extracted with
             {
                 Results = documents
                     .Select(d =>
                         reusable.GetValueOrDefault(d.Id)
-                        ?? extracted.Results.Single(r => r.DocumentId == d.Id)
+                        ?? extracted.Results.SingleOrDefault(r => r.DocumentId == d.Id)
                     )
+                    .OfType<ExtractionResult>()
                     .ToArray(),
             };
             using var q = c.CreateCommand();
@@ -976,15 +1003,30 @@ public static class ExtractionEndpoints
             .Produces<ExtractionHistoryResponse>();
         app.MapPost(
                 "/api/extraction/{packetId}/run",
-                (
+                async (
                     string packetId,
                     ExtractionRunRequest request,
                     Store s,
                     OperationsPlatformStore operations,
-                    HttpContext context
+                    ExtractionAi ai,
+                    HttpContext context,
+                    CancellationToken ct
                 ) =>
                 {
                     ExtractionStorage.Initialize(s);
+                    // Ask for AI fields before the write transaction; answers are cached by page text.
+                    if (
+                        s.Get(packetId) is { } before
+                        && before.Revision == request.Revision
+                        && ExtractionStorage.Get<ExtractionDefinition>(
+                            s,
+                            "definition",
+                            $"{request.DefinitionId}:{request.Version}"
+                        )
+                            is { } definition
+                        && ExtractionPlatform.ValidateDefinition(definition) is null
+                    )
+                        await ai.PrepareAsync(before, definition, ct);
                     using var connection = s.Open();
                     using var transaction = connection.BeginTransaction();
                     var p = Store.Read(connection, transaction, packetId);
@@ -1012,7 +1054,11 @@ public static class ExtractionEndpoints
                         return Results.NotFound();
                     try
                     {
-                        var run = ExtractionPlatform.Extract(p, d);
+                        var run = ExtractionPlatform.Extract(
+                            p,
+                            d,
+                            ExtractionAi.Load(connection, transaction, p, d)
+                        );
                         using var command = connection.CreateCommand();
                         command.Transaction = transaction;
                         ExtractionStorage.Insert(command, "run", run.Id, run);

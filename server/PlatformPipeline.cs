@@ -6,7 +6,8 @@ public sealed class PlatformPipeline(
     QualityStore quality,
     ReferenceService references,
     FlowEngine flows,
-    CaseStore cases
+    CaseStore cases,
+    ExtractionAi? ai = null
 )
 {
     public async Task BeforeAssemblyAsync(Packet packet, CancellationToken ct)
@@ -21,6 +22,8 @@ public sealed class PlatformPipeline(
             await flows.ExecuteAsync(packet, Handlers(), ct);
         else
         {
+            if (ai is not null)
+                await ai.PrepareConfiguredAsync(packet, ct);
             ExtractionPlatform.RunConfigured(store, packet);
             await references.ProcessAsync(packet, ct);
             if (packet.EffectiveWorkflow.Capabilities?.Case is not null)
@@ -56,9 +59,11 @@ public sealed class PlatformPipeline(
     private IReadOnlyDictionary<FlowBlockKind, FlowBlockHandler> Handlers() =>
         new Dictionary<FlowBlockKind, FlowBlockHandler>
         {
-            [FlowBlockKind.Extraction] = (context, ct) =>
+            [FlowBlockKind.Extraction] = async (context, ct) =>
             {
                 ct.ThrowIfCancellationRequested();
+                if (ai is not null)
+                    await ai.PrepareConfiguredAsync(context.Packet, ct);
                 ExtractionPlatform.RunConfigured(store, context.Packet);
                 var run = CurrentExtraction(context.Packet);
                 var fields = new Dictionary<string, string>();
@@ -78,7 +83,7 @@ public sealed class PlatformPipeline(
                             fields[group.Key] = values[0];
                     }
                 }
-                return Task.FromResult(new FlowBlockResult(fields, []));
+                return new FlowBlockResult(fields, []);
             },
             [FlowBlockKind.Reference] = async (context, ct) =>
             {
