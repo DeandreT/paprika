@@ -56,11 +56,33 @@ public sealed class FlowEngine
         CancellationToken ct
     ) => ExecuteAsync(packet, packet.EffectiveWorkflow.Capabilities?.Flow, handlers, ct);
 
-    public async Task<FlowRun?> ExecuteAsync(
+    public Task<FlowRun?> ExecuteAsync(
         Packet packet,
         FlowPolicy? policy,
         IReadOnlyDictionary<FlowBlockKind, FlowBlockHandler> handlers,
         CancellationToken ct
+    ) => ExecuteAsync(packet, policy, handlers, ct, null);
+
+    internal Task<FlowRun?> ExecuteAsync(
+        Packet packet,
+        IReadOnlyDictionary<FlowBlockKind, FlowBlockHandler> handlers,
+        Func<Packet, CancellationToken, Task> prepareExtraction,
+        CancellationToken ct
+    ) =>
+        ExecuteAsync(
+            packet,
+            packet.EffectiveWorkflow.Capabilities?.Flow,
+            handlers,
+            ct,
+            prepareExtraction
+        );
+
+    private async Task<FlowRun?> ExecuteAsync(
+        Packet packet,
+        FlowPolicy? policy,
+        IReadOnlyDictionary<FlowBlockKind, FlowBlockHandler> handlers,
+        CancellationToken ct,
+        Func<Packet, CancellationToken, Task>? prepareExtraction
     )
     {
         if (policy is null)
@@ -195,10 +217,17 @@ public sealed class FlowEngine
                         .Templates!.Single(t => t.Id == original.TemplateId)
                         .Operations,
                 };
+            bool preparingExtraction = false;
             try
             {
                 if (block.Kind == FlowBlockKind.Output && packet.Status != "approved")
                     throw new FlowAwaitingApprovalException();
+                if (block.Kind == FlowBlockKind.Extraction && prepareExtraction is not null)
+                {
+                    preparingExtraction = true;
+                    await prepareExtraction(packet, ct);
+                    preparingExtraction = false;
+                }
                 var result = block.Kind is FlowBlockKind.Transform or FlowBlockKind.Validate
                     ? Safe(block, fields)
                     : await handlers[block.Kind](new(packet, block, key, fields, verified), ct);
@@ -238,16 +267,25 @@ public sealed class FlowEngine
                 );
                 return Get(packet);
             }
-            catch
+            catch (Exception ex)
             {
+                // Only the cache-backed AI preparation is safe to return to the durable queue
+                // automatically. Leave other handler failures subject to explicit recovery.
+                bool resumable =
+                    preparingExtraction
+                    && (
+                        (ex is OperationCanceledException && ct.IsCancellationRequested)
+                        || Messaging.SafeFailure(ex) is TransientWorkException
+                    );
                 Finish(
                     packet,
                     executionRecord with
                     {
-                        Status = "failed",
+                        Status = resumable ? "pending" : "failed",
                         UpdatedAt = DateTimeOffset.UtcNow,
-                        Error =
-                            "Block failed. Review its service diagnostics, then retry explicitly.",
+                        Error = resumable
+                            ? null
+                            : "Block failed. Review its service diagnostics, then retry explicitly.",
                     }
                 );
                 throw;
@@ -314,7 +352,10 @@ public sealed class FlowEngine
         using var tx = c.BeginTransaction();
         var prior = Read(c, tx, packet)!
             .Executions.SingleOrDefault(e => e.BlockId == execution.BlockId);
-        if (prior is not null && prior.Status is not ("pending" or "waitingApproval"))
+        if (
+            execution.Attempt != (prior?.Attempt ?? 0) + 1
+            || (prior is not null && prior.Status is not ("pending" or "waitingApproval"))
+        )
             throw new WorkflowException(
                 409,
                 "Another executor claimed this block. Reload progress."

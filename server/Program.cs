@@ -40,7 +40,7 @@ _ = app.Services.GetRequiredService<ConnectorDeliveryStore>();
 _ = app.Services.GetRequiredService<FlowLibrary>();
 _ = app.Services.GetRequiredService<FlowEngine>();
 _ = app.Services.GetRequiredService<CaseStore>();
-ExtractionStorage.Initialize(app.Services.GetRequiredService<Store>());
+ExtractionAi.Initialize(app.Services.GetRequiredService<Store>());
 
 // Orchestrators may probe by pod IP, not an application hostname. Only these exact
 // GETs return a status without inspecting identity, disclosing details or serving data.

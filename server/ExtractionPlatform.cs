@@ -566,12 +566,11 @@ public static class ExtractionPlatform
         }
         var current = Current(c, tx, packet, policy.Sha256);
         var documents = MatchingDocuments(packet, policy.Definition!).ToArray();
-        bool CompleteShape(ExtractionResult result) =>
-            result.DefinitionSha256 == policy.Sha256
-            && result.Fields.Length == policy.Definition!.Fields.Length
-            && policy.Definition.Fields.All(f => result.Fields.Count(v => v.Name == f.Name) == 1);
         var reusable = (current?.Results ?? [])
-            .Where(r => documents.Any(d => d.Id == r.DocumentId) && CompleteShape(r))
+            .Where(r =>
+                documents.Any(d => d.Id == r.DocumentId)
+                && CompleteShape(r, policy.Definition!, policy.Sha256)
+            )
             .GroupBy(r => r.DocumentId)
             .Where(g => g.Count() == 1)
             .ToDictionary(g => g.Key, g => g.Single());
@@ -628,6 +627,15 @@ public static class ExtractionPlatform
         packet.Documents.Where(d =>
             definition.DocumentType == null || definition.DocumentType == d.Type
         );
+
+    internal static bool CompleteShape(
+        ExtractionResult result,
+        ExtractionDefinition definition,
+        string sha
+    ) =>
+        result.DefinitionSha256 == sha
+        && result.Fields.Length == definition.Fields.Length
+        && definition.Fields.All(f => result.Fields.Count(v => v.Name == f.Name) == 1);
 
     public static string[] Blockers(Store store, Packet packet)
     {
@@ -1014,19 +1022,82 @@ public static class ExtractionEndpoints
                 ) =>
                 {
                     ExtractionStorage.Initialize(s);
-                    // Ask for AI fields before the write transaction; answers are cached by page text.
-                    if (
-                        s.Get(packetId) is { } before
-                        && before.Revision == request.Revision
-                        && ExtractionStorage.Get<ExtractionDefinition>(
-                            s,
+                    // Check both authorization and workflow opt-in before sending text off-server.
+                    // Recheck mutable state after the network call, before adding extraction coverage.
+                    Packet before;
+                    ExtractionDefinition definition;
+                    HashSet<string>? alreadyCovered = null;
+                    var actor = OperationsAccess.Actor(context);
+                    using (var read = s.Open())
+                    using (var check = read.BeginTransaction())
+                    {
+                        if (Store.Read(read, check, packetId) is not { } current)
+                            return Results.NotFound();
+                        if (current.Revision != request.Revision)
+                            return Results.Conflict();
+                        if (
+                            operations.ValidateMutation(read, check, current, actor) is string error
+                        )
+                            return Results.Conflict(new { error });
+                        var selected = ExtractionStorage.Get<ExtractionDefinition>(
+                            read,
+                            check,
                             "definition",
                             $"{request.DefinitionId}:{request.Version}"
+                        );
+                        if (selected is null)
+                            return Results.NotFound();
+                        if (ExtractionPlatform.ValidateDefinition(selected) is string invalid)
+                            return Results.BadRequest(new { error = invalid });
+                        if (
+                            ExtractionAi.Uses(selected)
+                            && current.EffectiveWorkflow.Capabilities?.Extraction?.Sha256
+                                != ExtractionStorage.Hash(selected)
                         )
-                            is { } definition
-                        && ExtractionPlatform.ValidateDefinition(definition) is null
-                    )
-                        await ai.PrepareAsync(before, definition, ct);
+                            return Results.Conflict(
+                                new
+                                {
+                                    error = "Select this AI field definition in the packet's workflow before sending its text to OpenAI.",
+                                }
+                            );
+                        before = current;
+                        definition = selected;
+                        var sha = ExtractionStorage.Hash(selected);
+                        if (
+                            ExtractionAi.Uses(selected)
+                            && ExtractionPlatform.Current(read, check, current, sha) is { } run
+                        )
+                            alreadyCovered = run
+                                .Results.Where(r =>
+                                    ExtractionPlatform.CompleteShape(r, selected, sha)
+                                )
+                                .GroupBy(r => r.DocumentId)
+                                .Where(group => group.Count() == 1)
+                                .Select(group => group.Key)
+                                .ToHashSet(StringComparer.Ordinal);
+                    }
+                    try
+                    {
+                        await ai.PrepareAsync(before, definition, ct, alreadyCovered);
+                    }
+                    catch (Exception e)
+                        when (!ct.IsCancellationRequested
+                            && e
+                                is HttpRequestException
+                                    or InvalidOperationException
+                                    or IOException
+                                    or TimeoutException
+                                    or TaskCanceledException
+                        )
+                    {
+                        return Results.Json(
+                            new
+                            {
+                                error = "AI field extraction failed. Check the provider configuration and availability, then retry.",
+                            },
+                            statusCode: 502
+                        );
+                    }
                     using var connection = s.Open();
                     using var transaction = connection.BeginTransaction();
                     var p = Store.Read(connection, transaction, packetId);
@@ -1035,30 +1106,26 @@ public static class ExtractionEndpoints
                     if (p.Revision != request.Revision)
                         return Results.Conflict();
                     if (
-                        operations.ValidateMutation(
-                            connection,
-                            transaction,
-                            p,
-                            OperationsAccess.Actor(context)
-                        )
+                        operations.ValidateMutation(connection, transaction, p, actor)
                         is string claimError
                     )
                         return Results.Conflict(new { error = claimError });
-                    var d = ExtractionStorage.Get<ExtractionDefinition>(
-                        connection,
-                        transaction,
-                        "definition",
-                        $"{request.DefinitionId}:{request.Version}"
-                    );
-                    if (d == null)
-                        return Results.NotFound();
                     try
                     {
-                        var run = ExtractionPlatform.Extract(
-                            p,
-                            d,
-                            ExtractionAi.Load(connection, transaction, p, d)
-                        );
+                        if (
+                            p.EffectiveWorkflow.Capabilities?.Extraction?.Sha256
+                            == ExtractionStorage.Hash(definition)
+                        )
+                        {
+                            var configured = ExtractionPlatform.RunConfigured(
+                                connection,
+                                transaction,
+                                p
+                            );
+                            transaction.Commit();
+                            return Results.Ok(configured);
+                        }
+                        var run = ExtractionPlatform.Extract(p, definition);
                         using var command = connection.CreateCommand();
                         command.Transaction = transaction;
                         ExtractionStorage.Insert(command, "run", run.Id, run);
@@ -1075,6 +1142,7 @@ public static class ExtractionEndpoints
             .WithName("RunPacketExtraction")
             .Produces<ExtractionRun>()
             .Produces<ApiError>(400)
+            .Produces<ApiError>(502)
             .Produces(409)
             .Produces(404);
         app.MapPost(

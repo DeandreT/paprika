@@ -19,7 +19,7 @@ public sealed class PlatformPipeline(
     public async Task<QualityDecision> AfterAssemblyAsync(Packet packet, CancellationToken ct)
     {
         if (packet.EffectiveWorkflow.Capabilities?.Flow is not null)
-            await flows.ExecuteAsync(packet, Handlers(), ct);
+            await flows.ExecuteAsync(packet, Handlers(), PrepareFlowExtractionAsync, ct);
         else
         {
             if (ai is not null)
@@ -37,6 +37,8 @@ public sealed class PlatformPipeline(
         var current = store.Get(packet.Id);
         if (current is null || current.Status != "approved" || current.Revision != packet.Revision)
             return;
+        // Approval requires exact coverage from existing evidence. Continuing an approved flow
+        // must neither acquire new AI values nor bypass the approval check.
         ExtractionPlatform.RunConfigured(store, current);
         var extractionBlockers = ExtractionPlatform.Blockers(store, current);
         if (extractionBlockers.Length > 0)
@@ -56,24 +58,47 @@ public sealed class PlatformPipeline(
         }
     }
 
+    private Task PrepareFlowExtractionAsync(Packet packet, CancellationToken ct)
+    {
+        if (
+            packet.EffectiveWorkflow.Capabilities?.Extraction?.Definition is not { } definition
+            || !ExtractionAi.Uses(definition)
+        )
+            return Task.CompletedTask;
+        if (ai is null)
+            throw new InvalidOperationException("AI extraction service is unavailable.");
+        return ai.PrepareConfiguredAsync(packet, ct);
+    }
+
     private IReadOnlyDictionary<FlowBlockKind, FlowBlockHandler> Handlers() =>
         new Dictionary<FlowBlockKind, FlowBlockHandler>
         {
-            [FlowBlockKind.Extraction] = async (context, ct) =>
+            [FlowBlockKind.Extraction] = (context, _) =>
             {
-                ct.ThrowIfCancellationRequested();
-                if (ai is not null)
-                    await ai.PrepareConfiguredAsync(context.Packet, ct);
                 ExtractionPlatform.RunConfigured(store, context.Packet);
                 var run = CurrentExtraction(context.Packet);
                 var fields = new Dictionary<string, string>();
                 if (run is not null)
                 {
+                    // Quote grounding verifies provenance, not that the model picked the
+                    // right text. Only expose an AI value to automation after review.
+                    var unreviewed = run
+                        .Definition.Fields.Where(f => f.Description is not null)
+                        .Select(f => f.Name)
+                        .ToHashSet(StringComparer.Ordinal);
                     foreach (
                         var group in run
                             .Results.SelectMany(r => r.Fields)
                             .Where(f =>
-                                f.Value is not null && f.Status is "extracted" or "corrected"
+                                f.Value is not null
+                                && (
+                                    f.Status == "corrected"
+                                    || f.Status == "extracted"
+                                        && (
+                                            context.Packet.Status == "approved"
+                                            || !unreviewed.Contains(f.Name)
+                                        )
+                                )
                             )
                             .GroupBy(f => f.Name)
                     )
@@ -83,7 +108,7 @@ public sealed class PlatformPipeline(
                             fields[group.Key] = values[0];
                     }
                 }
-                return new FlowBlockResult(fields, []);
+                return Task.FromResult(new FlowBlockResult(fields, []));
             },
             [FlowBlockKind.Reference] = async (context, ct) =>
             {

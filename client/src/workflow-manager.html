@@ -100,7 +100,9 @@
             @if (classifier(); as c) {
               <p class="small" role="status" data-testid="workflow-classifier-status">{{ entry.classifierBindingNeedsRepair ? 'Copied binding: ' + c.status : c.status }}</p>
               @if (entry.classifierBindingNeedsRepair) { <p class="small muted">{{ bindingIssue() }}</p> }
-              @if (c.provider && !c.modelMatches && !locked()) { <button mat-stroked-button (click)="chooseClassifier(c.provider.id)">Use configured model: {{ c.provider.model }}</button> }
+              @if (c.provider && (!c.modelMatches || c.bindingUnavailable) && !locked()) {
+                <button mat-stroked-button (click)="chooseClassifier(c.provider.id)">{{ c.modelMatches ? 'Use current classifier configuration' : 'Use configured model: ' + c.provider.model }}</button>
+              }
               <p class="small muted">This workflow keeps its selected classifier and model when other provider keys are added.</p>
             } @else { <p class="small muted">Simulation · Local rules, no OCR · {{ workflow.model }}</p> }
             @if (guided()) {

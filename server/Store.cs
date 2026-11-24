@@ -137,7 +137,12 @@ public sealed class Store
         if (workflow.Mode != "live")
             return workflow;
         var (profile, model) = settings.ClassifierBinding(packet);
-        var provider = settings.RequireLiveClassifier(profile, model);
+        var provider = WorkflowRegistry.RequireBoundLiveClassifier(
+            settings,
+            profile,
+            model,
+            workflow.ClassifierBindingHash
+        );
         return workflow.ProviderProfile == provider && workflow.Model == model
             ? workflow
             : WorkflowRegistry.WithHash(

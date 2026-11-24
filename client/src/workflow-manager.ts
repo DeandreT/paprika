@@ -51,7 +51,7 @@ export class WorkflowManagerComponent {
   classifierNames = classifierNames;
   classifier = computed(() => {
     const entry = this.editor();
-    return entry?.workflow?.mode === "live" ? classifierInfo(entry.workflow, this.store.catalog().classifierProviders, entry.resolvedClassifierProvider) : null;
+    return entry?.workflow?.mode === "live" ? classifierInfo(entry.workflow, this.store.catalog().classifierProviders, entry) : null;
   });
   bindingIssue = computed(() => {
     if (this.editor()?.classifierBindingNeedsRepair) return "Choose a classifier to replace the copied binding, then save the draft.";
@@ -77,6 +77,7 @@ export class WorkflowManagerComponent {
     }
     if (e.workflow) {
       if (this.bindingIssue()) issues.push(this.bindingIssue());
+      else if (this.classifier()?.bindingUnavailable) issues.push("Save the draft with the current classifier configuration before publishing.");
       if (!this.selectedRelease()) issues.push("Choose a document-type release.");
       else if (this.selectedRelease()?.status !== "published") issues.push("Publish the selected release before publishing this workflow.");
       if (this.selectedTypes().some(t => t.status !== "published")) issues.push("Publish all referenced document type versions before publishing this workflow.");
@@ -207,6 +208,7 @@ export class WorkflowManagerComponent {
     const body = structuredClone(entry);
     delete body.resolvedClassifierProvider;
     delete body.classifierBindingNeedsRepair;
+    delete body.classifierBindingUnavailable;
     if (!body.name.trim()) { this.error.set("Enter a name before saving."); return; }
     if (this.bindingIssue()) { this.error.set(this.bindingIssue()); return; }
     if (body.workflow?.mode === "live") body.workflow.providerProfile = this.classifier()!.id!;

@@ -25,7 +25,11 @@ public sealed record WorkflowConfig(
     [property: System.Text.Json.Serialization.JsonIgnore(
         Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull
     )]
-        WorkflowCapabilities? Capabilities = null
+        WorkflowCapabilities? Capabilities = null,
+    [property: System.Text.Json.Serialization.JsonIgnore(
+        Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull
+    )]
+        string? ClassifierBindingHash = null
 );
 
 public sealed record CatalogEntry(
@@ -51,6 +55,12 @@ public sealed record CatalogEntry(
         Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingDefault
     )]
     public bool ClassifierBindingNeedsRepair { get; init; }
+
+    // A read projection only. Endpoint/model changes can invalidate a previously saved binding.
+    [System.Text.Json.Serialization.JsonIgnore(
+        Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingDefault
+    )]
+    public bool ClassifierBindingUnavailable { get; init; }
 }
 
 public sealed record CreateCatalogRequest(
@@ -117,7 +127,11 @@ public sealed record WorkflowSnapshot(
     [property: System.Text.Json.Serialization.JsonIgnore(
         Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull
     )]
-        WorkflowCapabilities? Capabilities = null
+        WorkflowCapabilities? Capabilities = null,
+    [property: System.Text.Json.Serialization.JsonIgnore(
+        Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull
+    )]
+        string? ClassifierBindingHash = null
 );
 
 public sealed record WorkflowSelection(
@@ -364,7 +378,8 @@ public sealed class WorkflowRegistry(Store store, Settings settings)
                     throw Invalid("The body must match the draft identity, version and status.");
                 if (
                     current.ClassifierBindingNeedsRepair
-                    && entry.Workflow is { Mode: "live", ProviderProfile: not ("jev" or "openai") }
+                    && entry.Workflow
+                        is { Mode: "live", ProviderProfile: not ("jev" or "openai" or "custom") }
                 )
                     throw Invalid(
                         "Choose an explicit classifier provider and its approved model to repair this draft."
@@ -376,6 +391,7 @@ public sealed class WorkflowRegistry(Store store, Settings settings)
                     {
                         ResolvedClassifierProvider = null,
                         ClassifierBindingNeedsRepair = false,
+                        ClassifierBindingUnavailable = false,
                     }
                 );
                 entry = Validate(c, tx, entry, false);
@@ -520,9 +536,11 @@ public sealed class WorkflowRegistry(Store store, Settings settings)
         if (config.Mode == "live")
             config = config with
             {
-                ProviderProfile = settings.RequireLiveClassifier(
+                ProviderProfile = RequireBoundLiveClassifier(
+                    settings,
                     config.ProviderProfile,
-                    config.Model
+                    config.Model,
+                    config.ClassifierBindingHash
                 ),
             };
         var release = Get(c, tx, "release", config.Release.Id, config.Release.Version);
@@ -557,7 +575,10 @@ public sealed class WorkflowRegistry(Store store, Settings settings)
             config.IdentifierKinds,
             config.RequiredIdentifierKinds,
             types,
-            Capabilities: PlatformPolicies.Freeze(c, tx, config.Capabilities)
+            Capabilities: PlatformPolicies.Freeze(c, tx, config.Capabilities),
+            ClassifierBindingHash: config.ProviderProfile == "custom"
+                ? config.ClassifierBindingHash
+                : null
         );
         PlatformPolicies.ValidateTaxonomy(snapshot.Capabilities, types.Select(t => t.Id));
         return WithHash(snapshot with { LegacyRules = UsesOriginalClassification(snapshot) });
@@ -667,13 +688,36 @@ public sealed class WorkflowRegistry(Store store, Settings settings)
             );
     }
 
-    private CatalogEntry PinDraftClassifier(
+    private static bool CustomBindingMatches(string? stored, string? current) =>
+        current is not null && string.Equals(stored, current, StringComparison.Ordinal);
+
+    internal static string RequireBoundLiveClassifier(
+        Settings settings,
+        string? profile,
+        string? model,
+        string? bindingHash
+    )
+    {
+        if (
+            profile == "custom"
+            && !CustomBindingMatches(bindingHash, settings.CustomClassifierBindingHash)
+        )
+            throw Invalid(
+                "The self-hosted classifier binding is unavailable. Select a published workflow version saved for the current configuration."
+            );
+        return settings.RequireLiveClassifier(profile, model);
+    }
+
+    private CatalogEntry ValidateClassifierBinding(
         CatalogEntry entry,
         WorkflowConfig workflow,
+        bool publishing,
         bool copyStoredBinding
     )
     {
-        if (workflow.Mode != "live" || (copyStoredBinding && entry.ClassifierBindingNeedsRepair))
+        if (workflow.Mode != "live")
+            return entry with { Workflow = workflow with { ClassifierBindingHash = null } };
+        if (copyStoredBinding && entry.ClassifierBindingNeedsRepair)
             return entry;
         try
         {
@@ -685,7 +729,31 @@ public sealed class WorkflowRegistry(Store store, Settings settings)
                 throw Invalid(
                     $"Model must match the approved model for the {provider} classifier."
                 );
-            return entry with { Workflow = workflow with { ProviderProfile = provider } };
+            string? bindingHash = null;
+            if (provider == "custom")
+            {
+                bindingHash = settings.CustomClassifierBindingHash;
+                if (publishing || copyStoredBinding)
+                {
+                    if (!CustomBindingMatches(workflow.ClassifierBindingHash, bindingHash))
+                        throw Invalid(
+                            "The self-hosted classifier binding has changed or is unavailable. Save the draft again before publishing."
+                        );
+                    return entry;
+                }
+                if (bindingHash is null)
+                    throw Invalid(
+                        "The self-hosted classifier requires an approved endpoint and model."
+                    );
+            }
+            return entry with
+            {
+                Workflow = workflow with
+                {
+                    ProviderProfile = provider,
+                    ClassifierBindingHash = bindingHash,
+                },
+            };
         }
         catch (WorkflowException) when (copyStoredBinding)
         {
@@ -757,7 +825,7 @@ public sealed class WorkflowRegistry(Store store, Settings settings)
                 if (entry.Workflow is not { } workflow)
                     throw Invalid("Workflow configuration is required.");
                 ValidateWorkflow(workflow);
-                entry = PinDraftClassifier(entry, workflow, copyStoredBinding);
+                entry = ValidateClassifierBinding(entry, workflow, publishing, copyStoredBinding);
                 var release = Dependency(c, tx, "release", workflow.Release, publishing);
                 var capabilities = PlatformPolicies.Freeze(c, tx, workflow.Capabilities);
                 PlatformPolicies.ValidateTaxonomy(
@@ -786,8 +854,19 @@ public sealed class WorkflowRegistry(Store store, Settings settings)
         return entry;
     }
 
-    private CatalogEntry ProjectLegacyClassifier(CatalogEntry entry)
+    private CatalogEntry ProjectClassifierBinding(CatalogEntry entry)
     {
+        if (
+            entry.Status is "draft" or "published"
+            && entry.Workflow is { Mode: "live", ProviderProfile: "custom" } custom
+        )
+            return entry with
+            {
+                ClassifierBindingUnavailable = !CustomBindingMatches(
+                    custom.ClassifierBindingHash,
+                    settings.CustomClassifierBindingHash
+                ),
+            };
         if (entry.Workflow is not { Mode: "live", ProviderProfile: null or "default" } live)
             return entry;
         try
@@ -910,8 +989,13 @@ public sealed class WorkflowRegistry(Store store, Settings settings)
                         );
                     })
                     .ToArray();
+                string[] classifierProviders = string.IsNullOrWhiteSpace(
+                    settings.CustomClassifierModel
+                )
+                    ? ["jev", "openai"]
+                    : ["jev", "openai", "custom"];
                 return new WorkflowCatalogResponse(
-                    entries.Select(ProjectLegacyClassifier).ToArray(),
+                    entries.Select(ProjectClassifierBinding).ToArray(),
                     Default(c, tx),
                     [.. PolicyModes],
                     ["default"],
@@ -919,7 +1003,7 @@ public sealed class WorkflowRegistry(Store store, Settings settings)
                     settings.Model
                 )
                 {
-                    ClassifierProviders = new[] { "jev", "openai" }
+                    ClassifierProviders = classifierProviders
                         .Select(id => new ClassifierProviderInfo(
                             id,
                             settings.ClassifierModel(id),

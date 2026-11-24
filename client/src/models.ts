@@ -72,8 +72,9 @@ export interface WorkflowConfig {
   capabilities?: WorkflowCapabilities | null;
 }
 export interface CatalogEntry extends VersionRef {
-  resolvedClassifierProvider?: ClassifierId;
+  resolvedClassifierProvider?: LegacyClassifierId;
   classifierBindingNeedsRepair?: boolean;
+  classifierBindingUnavailable?: boolean;
   kind: CatalogKind;
   revision: number;
   status: "draft" | "published" | "archived";
@@ -86,7 +87,8 @@ export interface CatalogEntry extends VersionRef {
 export interface WorkflowStats extends VersionRef {
   packets: number; review: number; failed: number; approved: number; corrections: number;
 }
-export type ClassifierId = "jev" | "openai";
+export type LegacyClassifierId = "jev" | "openai";
+export type ClassifierId = LegacyClassifierId | "custom";
 export interface ClassifierProvider { id: ClassifierId; model: string; configured: boolean }
 export interface WorkflowCatalog {
   canUpload: boolean;
