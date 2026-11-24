@@ -11,6 +11,7 @@ builder.Services.Configure<FormOptions>(o => o.MultipartBodyLengthLimit = 26 * 1
 builder.Services.AddSingleton<Store>();
 builder.Services.AddSingleton<Settings>();
 builder.Services.AddSingleton<Providers>();
+builder.Services.AddSingleton<ExtractionAi>();
 builder.Services.AddSingleton<JobCoordinator>();
 builder.Services.AddDeliverySimulation();
 builder.Services.AddApiDescription();
@@ -39,7 +40,7 @@ _ = app.Services.GetRequiredService<ConnectorDeliveryStore>();
 _ = app.Services.GetRequiredService<FlowLibrary>();
 _ = app.Services.GetRequiredService<FlowEngine>();
 _ = app.Services.GetRequiredService<CaseStore>();
-ExtractionStorage.Initialize(app.Services.GetRequiredService<Store>());
+ExtractionAi.Initialize(app.Services.GetRequiredService<Store>());
 
 // Orchestrators may probe by pod IP, not an application hostname. Only these exact
 // GETs return a status without inspecting identity, disclosing details or serving data.

@@ -103,6 +103,14 @@ public sealed class QualityStore
             items.Add(new("packet", packet.Id, invalid));
         foreach (var blocker in blockers ?? [])
             items.Add(new("validation", packet.Id, blocker));
+        if (
+            packet.EffectiveWorkflow.Capabilities?.Extraction?.Definition is { } definition
+            && ExtractionAi.Uses(definition)
+            && packet.Documents.Any(d =>
+                definition.DocumentType is null || d.Type == definition.DocumentType
+            )
+        )
+            items.Add(new("packet", packet.Id, "AI-extracted fields require human approval."));
         if (packet.TestRun || packet.Mode == "demo" || policy.SyntheticEvaluation)
             items.Add(
                 new(

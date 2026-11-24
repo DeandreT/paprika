@@ -1,25 +1,31 @@
 import { Injectable, computed, inject, signal } from "@angular/core";
 import { HttpClient, HttpErrorResponse } from "@angular/common/http";
 import { firstValueFrom } from "rxjs";
-import { CatalogEntry, ClassifierId, ClassifierProvider, VersionRef, WorkflowCatalog, WorkflowConfig, SplitPolicy } from "./models";
+import { CatalogEntry, ClassifierId, ClassifierProvider, LegacyClassifierId, VersionRef, WorkflowCatalog, WorkflowConfig, SplitPolicy } from "./models";
 
 export const splitPolicy = (mode: SplitPolicy["mode"] = "classifier"): SplitPolicy => ({ mode, pageCount: 1, pattern: "" });
 export const refKey = (ref: VersionRef | null | undefined) => ref ? `${ref.id}@${ref.version}` : "";
-export const classifierNames: Record<ClassifierId, string> = { jev: "Jev", openai: "OpenAI Decisions" };
+export const classifierNames: Record<ClassifierId, string> = { jev: "Jev", openai: "OpenAI Decisions", custom: "Self-hosted classifier" };
 type Binding = Pick<WorkflowConfig, "providerProfile" | "model" | "mode">;
+type BindingProjection = Pick<CatalogEntry, "resolvedClassifierProvider" | "classifierBindingUnavailable">;
+const isLegacyClassifierId = (id: unknown): id is LegacyClassifierId => id === "jev" || id === "openai";
+const isClassifierId = (id: unknown): id is ClassifierId => id === "custom" || isLegacyClassifierId(id);
 
-export function classifierInfo(workflow: Binding, providers: ClassifierProvider[], resolvedLegacy?: ClassifierId) {
-  // Only the server sees the full catalog and can safely resolve a legacy model.
+export function classifierInfo(workflow: Binding, providers: ClassifierProvider[], projection: BindingProjection) {
+  // The server resolves legacy models; a self-hosted classifier always needs an explicit pin.
   const profile = workflow.providerProfile;
-  const id = profile === "jev" || profile === "openai" ? profile : profile === "default" || profile == null ? resolvedLegacy : undefined;
+  const resolvedLegacy = projection.resolvedClassifierProvider;
+  const id = isClassifierId(profile) ? profile
+    : (profile === "default" || profile == null) && isLegacyClassifierId(resolvedLegacy) ? resolvedLegacy : undefined;
   const provider = providers.find(p => p.id === id);
   const modelMatches = !!provider && provider.model === workflow.model && !!workflow.model;
-  const ready = modelMatches && provider.configured;
+  const bindingUnavailable = id === "custom" && projection.classifierBindingUnavailable === true;
+  const ready = modelMatches && provider.configured && !bindingUnavailable;
   const name = id ? classifierNames[id] : "Unresolved classifier";
   const status = !workflow.model ? "Choose a classifier to pin its model."
     : !id ? `${name} · ${workflow.model}. This model needs an explicit provider.`
-    : `${name} · ${workflow.model} · ${!modelMatches ? "Pinned model unavailable" : ready ? "Configured" : "Not configured"}`;
-  return { id, name, provider, modelMatches, ready, status };
+    : `${name} · ${workflow.model} · ${!modelMatches ? "Pinned model unavailable" : bindingUnavailable ? "Pinned endpoint unavailable" : ready ? "Configured" : "Not configured"}`;
+  return { id, name, provider, modelMatches, bindingUnavailable, ready, status };
 }
 export const apiError = (error: unknown, fallback: string) => {
   const body = error instanceof HttpErrorResponse ? error.error : null;
@@ -69,7 +75,7 @@ export class WorkflowStore {
         defaultWorkflow: result?.defaultWorkflow ?? null,
         policies: Array.isArray(result?.policies) ? result.policies : [],
         providerProfiles: Array.isArray(result?.providerProfiles) ? result.providerProfiles : [],
-        classifierProviders: Array.isArray(result?.classifierProviders) ? result.classifierProviders.filter(p => p && (p.id === "jev" || p.id === "openai")) : [],
+        classifierProviders: Array.isArray(result?.classifierProviders) ? result.classifierProviders.filter(p => p && isClassifierId(p.id)) : [],
         stats: Array.isArray(result?.stats) ? result.stats.filter(Boolean) : [],
       });
     } catch (error) { this.clear(); this.error.set(apiError(error, "Could not load workflows. Retry catalog loading.")); }

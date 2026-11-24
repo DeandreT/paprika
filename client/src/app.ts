@@ -217,7 +217,7 @@ export class AppComponent {
     if (this.workflows.loading() || this.loading()) return { ready: false, text: "Checking workflow readiness…" };
     if (!entry?.workflow || !config || this.workflows.error()) return { ready: false, text: "Workflow unavailable for upload." };
     const { classifierProviders, canUpload } = this.workflows.catalog();
-    const classifier = entry.workflow.mode === "live" ? classifierInfo(entry.workflow, classifierProviders, entry.resolvedClassifierProvider) : null;
+    const classifier = entry.workflow.mode === "live" ? classifierInfo(entry.workflow, classifierProviders, entry) : null;
     const ready = canUpload && (!classifier || (classifier.ready && config.ocrConfigured));
     const details = classifier ? `${classifier.status} · OCR ${config.ocrConfigured ? "configured" : "not configured"}` : "Simulation · Local rules, no OCR";
     const status = !canUpload ? "Administrator access required to upload." : ready ? "Ready to upload." : "Live upload unavailable.";

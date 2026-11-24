@@ -1,5 +1,6 @@
 using System.Net;
 using System.Net.Http.Headers;
+using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 
@@ -26,12 +27,50 @@ public sealed class Settings(IConfiguration config)
     public string DefaultClassifierProvider =>
         string.IsNullOrWhiteSpace(JevKey) && OpenAiConfigured ? "openai" : "jev";
     public string Model => ClassifierModel(DefaultClassifierProvider);
+    public string CustomClassifierModel => config["paprika:CustomClassifier:Model"] ?? "";
+    internal string CustomClassifierKey => config["paprika:CustomClassifier:ApiKey"] ?? "";
+    internal Uri? CustomClassifierEndpoint =>
+        Uri.TryCreate(
+            config["paprika:CustomClassifier:Endpoint"],
+            UriKind.Absolute,
+            out var endpoint
+        )
+        && (endpoint.Scheme == "https" || endpoint.Scheme == "http" && endpoint.IsLoopback)
+        && endpoint.UserInfo.Length == 0
+        && endpoint.Query.Length == 0
+        && endpoint.Fragment.Length == 0
+            ? endpoint
+            : null;
+
+    // Endpoint rotations require a new workflow version. Rotating the secret does not.
+    internal const int CustomClassifierProtocol = 1;
+    public string? CustomClassifierBindingHash =>
+        CustomClassifierBinding(CustomClassifierEndpoint, CustomClassifierModel);
+
+    internal static string? CustomClassifierBinding(Uri? endpoint, string model) =>
+        endpoint is not null && !string.IsNullOrWhiteSpace(model) && model.Length <= 200
+            ? Convert
+                .ToHexString(
+                    SHA256.HashData(
+                        JsonSerializer.SerializeToUtf8Bytes(
+                            new
+                            {
+                                protocol = CustomClassifierProtocol,
+                                endpoint = endpoint.AbsoluteUri,
+                                model,
+                            }
+                        )
+                    )
+                )
+                .ToLowerInvariant()
+            : null;
 
     public string ClassifierModel(string provider) =>
         provider switch
         {
             "jev" => config["paprika:JevModel"] ?? "jev-latest",
             "openai" => config["paprika:OpenAiModel"] ?? "gpt-6-luna",
+            "custom" => CustomClassifierModel,
             _ => throw new WorkflowException(400, "Unknown classifier provider."),
         };
 
@@ -40,6 +79,8 @@ public sealed class Settings(IConfiguration config)
         {
             "jev" => !string.IsNullOrWhiteSpace(JevKey),
             "openai" => OpenAiConfigured,
+            "custom" => CustomClassifierBindingHash is not null
+                && !string.IsNullOrWhiteSpace(CustomClassifierKey),
             _ => false,
         };
 
@@ -47,6 +88,10 @@ public sealed class Settings(IConfiguration config)
     {
         if (string.IsNullOrWhiteSpace(model))
             throw new WorkflowException(400, "A classifier model is required.");
+        // A self-hosted endpoint may serve any explicitly selected model name.
+        // Legacy aliases never infer a custom provider.
+        if (profile == "custom")
+            return profile;
         string? family =
             model.StartsWith("jev-", StringComparison.OrdinalIgnoreCase) ? "jev"
             : model.StartsWith("gpt-", StringComparison.OrdinalIgnoreCase) ? "openai"
@@ -105,6 +150,11 @@ public sealed class Settings(IConfiguration config)
 
     internal void RequireClassifierKey(string provider)
     {
+        if (provider == "custom" && !ClassifierReady(provider))
+            throw new WorkflowException(
+                400,
+                "The self-hosted classifier requires an approved endpoint, model and API key."
+            );
         if (!ClassifierReady(provider))
             throw new WorkflowException(
                 400,
@@ -120,10 +170,11 @@ public sealed class Settings(IConfiguration config)
         && u.Scheme == "https"
         && !string.IsNullOrWhiteSpace(AzureKey);
     public bool OcrConfigured => AzureOcrConfigured || OpenAiConfigured;
-    public bool ClassifierConfigured => !string.IsNullOrWhiteSpace(JevKey) || OpenAiConfigured;
+    public bool ClassifierConfigured =>
+        ClassifierReady("jev") || OpenAiConfigured || ClassifierReady("custom");
 }
 
-public sealed class Providers(Settings settings, Store store, IHttpClientFactory factory)
+public sealed partial class Providers(Settings settings, Store store, IHttpClientFactory factory)
 {
     public const string PromptVersion = "paperwork-poc-1";
     private HttpClient Client => factory.CreateClient("providers");
@@ -144,12 +195,13 @@ public sealed class Providers(Settings settings, Store store, IHttpClientFactory
     private async Task<HttpResponseMessage> Send(
         Packet packet,
         Func<HttpRequestMessage> create,
-        CancellationToken ct
+        CancellationToken ct,
+        HttpCompletionOption completion = HttpCompletionOption.ResponseContentRead
     )
     {
         EnsureActive(packet, ct);
         using var req = create();
-        var response = await Client.SendAsync(req, ct);
+        var response = await Client.SendAsync(req, completion, ct);
         if (
             (
                 response.StatusCode == HttpStatusCode.TooManyRequests
@@ -389,7 +441,9 @@ public sealed class Providers(Settings settings, Store store, IHttpClientFactory
             },
         };
         var (choice, confidence, start, usedModel) =
-            provider == "openai"
+            provider == "custom"
+                ? await CustomClassify(packet, page, previous, workflow, criteria, ct)
+            : provider == "openai"
                 ? await OpenAiClassify(
                     packet,
                     page,
@@ -400,15 +454,7 @@ public sealed class Providers(Settings settings, Store store, IHttpClientFactory
                     promptVersion,
                     ct
                 )
-                : await JevClassify(
-                    packet,
-                    page,
-                    payload,
-                    workflow,
-                    requestedModel,
-                    promptVersion,
-                    ct
-                );
+            : await JevClassify(packet, page, payload, workflow, requestedModel, promptVersion, ct);
         page.PredictedType = choice;
         page.Confidence = confidence;
         page.StartProbability = previous is null || previous.SourceId != page.SourceId ? 1 : start;

@@ -70,10 +70,11 @@ public sealed class ExtractionRetentionParticipant(Store store) : IOperationsRet
     {
         if (!ExtractionStorage.Exists(connection, transaction))
             return;
+        ExtractionAi.EvictLegacyAnswers(connection, transaction);
         using var q = connection.CreateCommand();
         q.Transaction = transaction;
         q.CommandText =
-            "DELETE FROM extraction_objects WHERE json_extract(json,'$.packetId')=$packet AND kind IN ('run','correction','recognition')";
+            "DELETE FROM extraction_objects WHERE json_extract(json,'$.packetId')=$packet AND kind IN ('run','correction','recognition','ai-answer')";
         q.Parameters.AddWithValue("$packet", packet.Id);
         q.ExecuteNonQuery();
     }

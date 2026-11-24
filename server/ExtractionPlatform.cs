@@ -12,7 +12,11 @@ public sealed record ExtractionField(
     string Kind = "text",
     string? Pattern = null,
     string? Label = null,
-    bool Required = false
+    bool Required = false,
+    // Omitted when null so existing definition hashes stay unchanged.
+    [property: System.Text.Json.Serialization.JsonIgnore(
+        Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull
+    )] string? Description = null
 );
 
 public sealed record ExtractionTable(
@@ -216,14 +220,16 @@ public static class ExtractionPlatform
                 string.IsNullOrWhiteSpace(f.Name)
                 || f.Name.Length > 100
                 || f.Kind is not ("text" or "number" or "date" or "boolean")
-                || (f.Pattern is null) == (f.Label is null)
+                || new[] { f.Pattern, f.Label, f.Description }.Count(x => x != null) != 1
                 || f.Label?.Length > 100
                 || f.Pattern?.Length > 1000
+                || f.Description?.Length > 500
                 || (f.Label != null && string.IsNullOrWhiteSpace(f.Label))
                 || (f.Pattern != null && string.IsNullOrWhiteSpace(f.Pattern))
+                || (f.Description != null && string.IsNullOrWhiteSpace(f.Description))
             )
         )
-            return "Fields need unique names, a supported kind, and one bounded pattern or label.";
+            return "Fields need unique names, a supported kind, and one bounded pattern, label or AI description.";
         try
         {
             foreach (var f in d.Fields.Where(f => f.Pattern != null))
@@ -364,7 +370,11 @@ public static class ExtractionPlatform
         && page.Text.Substring(e.Offset, e.Length) == e.Text
         && ExtractionStorage.TextHash(page.Text) == e.TextSha256;
 
-    public static ExtractionRun Extract(Packet packet, ExtractionDefinition definition)
+    public static ExtractionRun Extract(
+        Packet packet,
+        ExtractionDefinition definition,
+        IReadOnlyDictionary<string, ExtractionAiAnswer>? ai = null
+    )
     {
         if (ValidateDefinition(definition) is string error)
             throw new ArgumentException(error);
@@ -379,6 +389,17 @@ public static class ExtractionPlatform
             var fields = definition
                 .Fields.Select(f =>
                 {
+                    if (f.Description != null)
+                        return ExtractionAi.Ground(
+                            f,
+                            pages,
+                            (
+                                ai?.GetValueOrDefault(doc.Id)
+                                ?? throw new ArgumentException(
+                                    "AI field extraction has not run for this document."
+                                )
+                            ).Fields.GetValueOrDefault(f.Name)
+                        );
                     var evidence = new List<ExtractionEvidence>();
                     var pattern = f.Pattern
                         ?? Regex.Escape(f.Label!) + @"\s*[:=]\s*(?<value>[^\r\n]+)";
@@ -545,12 +566,11 @@ public static class ExtractionPlatform
         }
         var current = Current(c, tx, packet, policy.Sha256);
         var documents = MatchingDocuments(packet, policy.Definition!).ToArray();
-        bool CompleteShape(ExtractionResult result) =>
-            result.DefinitionSha256 == policy.Sha256
-            && result.Fields.Length == policy.Definition!.Fields.Length
-            && policy.Definition.Fields.All(f => result.Fields.Count(v => v.Name == f.Name) == 1);
         var reusable = (current?.Results ?? [])
-            .Where(r => documents.Any(d => d.Id == r.DocumentId) && CompleteShape(r))
+            .Where(r =>
+                documents.Any(d => d.Id == r.DocumentId)
+                && CompleteShape(r, policy.Definition!, policy.Sha256)
+            )
             .GroupBy(r => r.DocumentId)
             .Where(g => g.Count() == 1)
             .ToDictionary(g => g.Key, g => g.Single());
@@ -565,6 +585,11 @@ public static class ExtractionPlatform
         {
             // Extract only missing/invalidated documents. Never overwrite a carried human correction.
             var missing = documents.Where(d => !reusable.ContainsKey(d.Id)).ToList();
+            var answers = ExtractionAi.Load(c, tx, packet, policy.Definition!);
+            // Documents still waiting for an AI answer stay uncovered, which blocks approval until
+            // the async pipeline or a manual extraction run asks the model.
+            if (ExtractionAi.Uses(policy.Definition!))
+                missing = missing.Where(d => answers.ContainsKey(d.Id)).ToList();
             var subset = new Packet
             {
                 Id = packet.Id,
@@ -573,14 +598,15 @@ public static class ExtractionPlatform
                 Documents = missing,
                 Pages = packet.Pages,
             };
-            var extracted = Extract(subset, policy.Definition!);
+            var extracted = Extract(subset, policy.Definition!, answers);
             run = extracted with
             {
                 Results = documents
                     .Select(d =>
                         reusable.GetValueOrDefault(d.Id)
-                        ?? extracted.Results.Single(r => r.DocumentId == d.Id)
+                        ?? extracted.Results.SingleOrDefault(r => r.DocumentId == d.Id)
                     )
+                    .OfType<ExtractionResult>()
                     .ToArray(),
             };
             using var q = c.CreateCommand();
@@ -601,6 +627,15 @@ public static class ExtractionPlatform
         packet.Documents.Where(d =>
             definition.DocumentType == null || definition.DocumentType == d.Type
         );
+
+    internal static bool CompleteShape(
+        ExtractionResult result,
+        ExtractionDefinition definition,
+        string sha
+    ) =>
+        result.DefinitionSha256 == sha
+        && result.Fields.Length == definition.Fields.Length
+        && definition.Fields.All(f => result.Fields.Count(v => v.Name == f.Name) == 1);
 
     public static string[] Blockers(Store store, Packet packet)
     {
@@ -976,15 +1011,93 @@ public static class ExtractionEndpoints
             .Produces<ExtractionHistoryResponse>();
         app.MapPost(
                 "/api/extraction/{packetId}/run",
-                (
+                async (
                     string packetId,
                     ExtractionRunRequest request,
                     Store s,
                     OperationsPlatformStore operations,
-                    HttpContext context
+                    ExtractionAi ai,
+                    HttpContext context,
+                    CancellationToken ct
                 ) =>
                 {
                     ExtractionStorage.Initialize(s);
+                    // Check both authorization and workflow opt-in before sending text off-server.
+                    // Recheck mutable state after the network call, before adding extraction coverage.
+                    Packet before;
+                    ExtractionDefinition definition;
+                    HashSet<string>? alreadyCovered = null;
+                    var actor = OperationsAccess.Actor(context);
+                    using (var read = s.Open())
+                    using (var check = read.BeginTransaction())
+                    {
+                        if (Store.Read(read, check, packetId) is not { } current)
+                            return Results.NotFound();
+                        if (current.Revision != request.Revision)
+                            return Results.Conflict();
+                        if (
+                            operations.ValidateMutation(read, check, current, actor) is string error
+                        )
+                            return Results.Conflict(new { error });
+                        var selected = ExtractionStorage.Get<ExtractionDefinition>(
+                            read,
+                            check,
+                            "definition",
+                            $"{request.DefinitionId}:{request.Version}"
+                        );
+                        if (selected is null)
+                            return Results.NotFound();
+                        if (ExtractionPlatform.ValidateDefinition(selected) is string invalid)
+                            return Results.BadRequest(new { error = invalid });
+                        if (
+                            ExtractionAi.Uses(selected)
+                            && current.EffectiveWorkflow.Capabilities?.Extraction?.Sha256
+                                != ExtractionStorage.Hash(selected)
+                        )
+                            return Results.Conflict(
+                                new
+                                {
+                                    error = "Select this AI field definition in the packet's workflow before sending its text to OpenAI.",
+                                }
+                            );
+                        before = current;
+                        definition = selected;
+                        var sha = ExtractionStorage.Hash(selected);
+                        if (
+                            ExtractionAi.Uses(selected)
+                            && ExtractionPlatform.Current(read, check, current, sha) is { } run
+                        )
+                            alreadyCovered = run
+                                .Results.Where(r =>
+                                    ExtractionPlatform.CompleteShape(r, selected, sha)
+                                )
+                                .GroupBy(r => r.DocumentId)
+                                .Where(group => group.Count() == 1)
+                                .Select(group => group.Key)
+                                .ToHashSet(StringComparer.Ordinal);
+                    }
+                    try
+                    {
+                        await ai.PrepareAsync(before, definition, ct, alreadyCovered);
+                    }
+                    catch (Exception e)
+                        when (!ct.IsCancellationRequested
+                            && e
+                                is HttpRequestException
+                                    or InvalidOperationException
+                                    or IOException
+                                    or TimeoutException
+                                    or TaskCanceledException
+                        )
+                    {
+                        return Results.Json(
+                            new
+                            {
+                                error = "AI field extraction failed. Check the provider configuration and availability, then retry.",
+                            },
+                            statusCode: 502
+                        );
+                    }
                     using var connection = s.Open();
                     using var transaction = connection.BeginTransaction();
                     var p = Store.Read(connection, transaction, packetId);
@@ -993,26 +1106,26 @@ public static class ExtractionEndpoints
                     if (p.Revision != request.Revision)
                         return Results.Conflict();
                     if (
-                        operations.ValidateMutation(
-                            connection,
-                            transaction,
-                            p,
-                            OperationsAccess.Actor(context)
-                        )
+                        operations.ValidateMutation(connection, transaction, p, actor)
                         is string claimError
                     )
                         return Results.Conflict(new { error = claimError });
-                    var d = ExtractionStorage.Get<ExtractionDefinition>(
-                        connection,
-                        transaction,
-                        "definition",
-                        $"{request.DefinitionId}:{request.Version}"
-                    );
-                    if (d == null)
-                        return Results.NotFound();
                     try
                     {
-                        var run = ExtractionPlatform.Extract(p, d);
+                        if (
+                            p.EffectiveWorkflow.Capabilities?.Extraction?.Sha256
+                            == ExtractionStorage.Hash(definition)
+                        )
+                        {
+                            var configured = ExtractionPlatform.RunConfigured(
+                                connection,
+                                transaction,
+                                p
+                            );
+                            transaction.Commit();
+                            return Results.Ok(configured);
+                        }
+                        var run = ExtractionPlatform.Extract(p, definition);
                         using var command = connection.CreateCommand();
                         command.Transaction = transaction;
                         ExtractionStorage.Insert(command, "run", run.Id, run);
@@ -1029,6 +1142,7 @@ public static class ExtractionEndpoints
             .WithName("RunPacketExtraction")
             .Produces<ExtractionRun>()
             .Produces<ApiError>(400)
+            .Produces<ApiError>(502)
             .Produces(409)
             .Produces(404);
         app.MapPost(
