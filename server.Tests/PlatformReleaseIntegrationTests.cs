@@ -112,12 +112,13 @@ public sealed class PlatformReleaseIntegrationTests
         using var client = app.Client();
         var store = app.Services.GetRequiredService<Store>();
         var packet = Worker.Demo(store);
-        packet.Status = "review";
-        packet.Documents = Worker.Assemble(packet.Pages);
-        store.Save(packet);
-        var approved = store
-            .Review(packet.Id, new(packet.Revision, packet.Documents, true))
-            .Packet!;
+        // Demo intake also enqueues processing. Use the same processor so it cannot
+        // race and overwrite a hand-set review status while we approve the fixture.
+        await app.Services.GetRequiredService<PacketProcessor>().Process(packet.Id, default);
+        var reviewed = store.Get(packet.Id)!;
+        var approval = store.Review(packet.Id, new(reviewed.Revision, reviewed.Documents, true));
+        Assert.Equal(200, approval.Code);
+        var approved = approval.Packet!;
         var url = $"/api/packets/{packet.Id}/export";
         var original = await client.GetByteArrayAsync(url);
         var dir = Path.Combine(store.Root, packet.Id, "exports", approved.Revision.ToString());

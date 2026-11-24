@@ -55,6 +55,11 @@ public static class Pdfs
     public static byte[] RenderDocument(Packet packet, Document doc, Store store)
     {
         PlatformReleaseGate.Ensure(store, packet);
+        return RenderDocumentBytes(packet, doc, store);
+    }
+
+    private static byte[] RenderDocumentBytes(Packet packet, Document doc, Store store)
+    {
         using var output = new PdfDocument();
         var paths = new Dictionary<string, string>();
         foreach (var id in doc.PageIds)
@@ -85,11 +90,14 @@ public static class Pdfs
 
     public static byte[] Export(Packet packet, Store store)
     {
-        PlatformReleaseGate.Ensure(store, packet);
-        var evidence = packet.EffectiveWorkflow.Capabilities is null
-            ? null
-            : PlatformExportEvidence.Read(store, packet);
-        return BuildExport(packet, store, evidence, doc => RenderDocument(packet, doc, store));
+        (object? Evidence, ApprovedFieldExport? Fields) snapshot = default;
+        if (packet.EffectiveWorkflow.Capabilities is not null)
+        {
+            using var db = store.Open();
+            using var tx = db.BeginTransaction(deferred: true);
+            snapshot = ReadExportSnapshot(db, tx, packet, store);
+        }
+        return BuildExport(packet, store, snapshot, doc => RenderDocumentBytes(packet, doc, store));
     }
 
     internal static byte[] ApprovedDocument(
@@ -98,6 +106,15 @@ public static class Pdfs
         Packet packet,
         Document doc,
         Store store
+    ) => ApprovedDocument(db, tx, packet, doc, store, releaseChecked: false);
+
+    private static byte[] ApprovedDocument(
+        SqliteConnection db,
+        SqliteTransaction tx,
+        Packet packet,
+        Document doc,
+        Store store,
+        bool releaseChecked
     )
     {
         var index = packet.Documents.IndexOf(doc);
@@ -108,7 +125,17 @@ public static class Pdfs
             tx,
             packet,
             $"document-{index + 1:000}.pdf",
-            () => RenderDocument(packet, doc, store)
+            () =>
+            {
+                if (!releaseChecked)
+                    PlatformReleaseGate.Ensure(
+                        db,
+                        tx,
+                        packet,
+                        new ConnectorCatalog(store.Configuration)
+                    );
+                return RenderDocumentBytes(packet, doc, store);
+            }
         );
     }
 
@@ -119,36 +146,59 @@ public static class Pdfs
         Store store
     )
     {
+        var snapshot = ReadExportSnapshot(db, tx, packet, store);
+        // Reference/extraction/flow evidence can change without a packet revision change.
+        // Older snapshots remain immutable, but can never substitute for current evidence.
+        string leaf;
+        if (snapshot.Fields is { } fields)
+        {
+            var digest = ExtractionStorage.Hash(new { platform = snapshot.Evidence, fields });
+            leaf = $"packet-fields-v{fields.SchemaVersion}-{digest}.zip";
+        }
+        else
+            leaf = snapshot.Evidence is null
+                ? "packet.zip"
+                : $"packet-{ArtifactStorage.Hash(JsonSerializer.SerializeToUtf8Bytes(snapshot.Evidence, Contract.Json))}.zip";
+        return store.PacketArtifacts.ApprovedBytes(db, tx, packet, leaf, () =>
+            BuildExport(packet, store, snapshot, doc =>
+                ApprovedDocument(db, tx, packet, doc, store, releaseChecked: true)
+            )
+        );
+    }
+
+    private static (object? Evidence, ApprovedFieldExport? Fields) ReadExportSnapshot(
+        SqliteConnection db,
+        SqliteTransaction tx,
+        Packet packet,
+        Store store
+    )
+    {
         PlatformReleaseGate.Ensure(db, tx, packet, new ConnectorCatalog(store.Configuration));
         var evidence = packet.EffectiveWorkflow.Capabilities is null
             ? null
-            : PlatformExportEvidence.Read(store, packet);
-        // Reference/extraction/flow evidence can change without a packet revision change.
-        // Older snapshots remain immutable, but can never substitute for current evidence.
-        var leaf = evidence is null
-            ? "packet.zip"
-            : $"packet-{ArtifactStorage.Hash(JsonSerializer.SerializeToUtf8Bytes(evidence, Contract.Json))}.zip";
-        return store.PacketArtifacts.ApprovedBytes(db, tx, packet, leaf, () =>
-            BuildExport(packet, store, evidence, doc =>
-                ApprovedDocument(db, tx, packet, doc, store)
-            )
-        );
+            : PlatformExportEvidence.Read(db, tx, packet);
+        return (evidence, ApprovedFieldExport.Read(db, tx, packet));
     }
 
     private static byte[] BuildExport(
         Packet packet,
         Store store,
-        object? snapshotEvidence,
+        (object? Evidence, ApprovedFieldExport? Fields) snapshot,
         Func<Document, byte[]> renderDocument
     )
     {
         using var buffer = new MemoryStream();
         using (var zip = new ZipArchive(buffer, ZipArchiveMode.Create, true))
         {
-            if (snapshotEvidence is not null)
+            if (snapshot.Evidence is not null)
             {
                 using var evidence = zip.CreateEntry("platform.json").Open();
-                JsonSerializer.Serialize(evidence, snapshotEvidence, Contract.Json);
+                JsonSerializer.Serialize(evidence, snapshot.Evidence, Contract.Json);
+            }
+            if (snapshot.Fields is not null)
+            {
+                using var fields = zip.CreateEntry("fields.json").Open();
+                JsonSerializer.Serialize(fields, snapshot.Fields, Contract.Json);
             }
             int n = 0;
             var mappings = new List<object>();
