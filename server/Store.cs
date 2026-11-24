@@ -131,6 +131,24 @@ public sealed class Store
             : null;
     }
 
+    private static WorkflowSnapshot RetainedWorkflowForNewRun(Packet packet, Settings settings)
+    {
+        var workflow = packet.EffectiveWorkflow;
+        if (workflow.Mode != "live")
+            return workflow;
+        var (profile, model) = settings.ClassifierBinding(packet);
+        var provider = settings.RequireLiveClassifier(profile, model);
+        return workflow.ProviderProfile == provider && workflow.Model == model
+            ? workflow
+            : WorkflowRegistry.WithHash(
+                workflow with
+                {
+                    ProviderProfile = provider,
+                    Model = model,
+                }
+            );
+    }
+
     public (Packet? Packet, int Code, string? Error) Accept(
         Packet packet,
         string? key,
@@ -205,10 +223,9 @@ public sealed class Store
         try
         {
             packet.Workflow = selection is null
-                ? packet.EffectiveWorkflow
+                ? RetainedWorkflowForNewRun(packet, new Settings(Configuration))
                 : Workflows.Resolve(c, tx, selection);
-            if (selection is not null)
-                packet.Mode = packet.Workflow.Mode;
+            packet.Mode = packet.Workflow.Mode;
             packet.TestRun = selection?.TestRun ?? packet.TestRun;
             packet.IntakeSelection = selection;
         }
@@ -286,15 +303,13 @@ public sealed class Store
         try
         {
             workflow = selection is null
-                ? parent.Workflow ?? WorkflowRegistry.Legacy(parent.Mode, settings.Model)
+                ? RetainedWorkflowForNewRun(parent, settings)
                 : Workflows.Resolve(c, tx, selection);
         }
         catch (WorkflowException ex)
         {
             return (null, ex.Code, ex.Message);
         }
-        if (workflow.Mode == "live" && (!settings.OcrConfigured || !settings.ClassifierConfigured))
-            return (null, 400, "Live reprocessing requires both provider credentials.");
         var p = new Packet
         {
             Name = parent.Name,

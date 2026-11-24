@@ -16,7 +16,7 @@ public sealed record ReleaseConfig(VersionRef[] Types);
 public sealed record WorkflowConfig(
     VersionRef Release,
     string Mode,
-    string ProviderProfile,
+    string? ProviderProfile,
     string Model,
     string Instructions,
     SplitPolicy DefaultSplit,
@@ -39,7 +39,19 @@ public sealed record CatalogEntry(
     TypeConfig? DocumentType = null,
     ReleaseConfig? Release = null,
     WorkflowConfig? Workflow = null
-);
+)
+{
+    // A catalog read projection only. A legacy definition's stored profile remains untouched.
+    [System.Text.Json.Serialization.JsonIgnore(
+        Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull
+    )]
+    public string? ResolvedClassifierProvider { get; init; }
+
+    [System.Text.Json.Serialization.JsonIgnore(
+        Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingDefault
+    )]
+    public bool ClassifierBindingNeedsRepair { get; init; }
+}
 
 public sealed record CreateCatalogRequest(
     string Kind,
@@ -61,6 +73,8 @@ public sealed record WorkflowStats(
     int Corrections
 );
 
+public sealed record ClassifierProviderInfo(string Id, string Model, bool Configured);
+
 public sealed record WorkflowCatalogResponse(
     CatalogEntry[] Entries,
     VersionRef DefaultWorkflow,
@@ -68,7 +82,11 @@ public sealed record WorkflowCatalogResponse(
     string[] ProviderProfiles,
     WorkflowStats[] Stats,
     string LiveModel = ""
-);
+)
+{
+    public ClassifierProviderInfo[] ClassifierProviders { get; init; } = [];
+    public bool CanUpload { get; init; } = true;
+}
 
 public sealed record SnapshotType(
     string Id,
@@ -166,8 +184,9 @@ public sealed class WorkflowRegistry(Store store, Settings settings)
         q.CommandText = "SELECT json FROM workflow_settings WHERE key='initialized'";
         if (q.ExecuteScalar() is null)
         {
+            var provider = settings.DefaultClassifierProvider;
             foreach (
-                var entry in Seeds(settings.Mode == "live" ? "live" : "simulation", settings.Model)
+                var entry in Seeds(settings.Mode, provider, settings.ClassifierModel(provider))
             )
                 Insert(c, tx, entry);
             SaveSetting(c, tx, "default", new VersionRef("general-logistics", 1));
@@ -307,7 +326,7 @@ public sealed class WorkflowRegistry(Store store, Settings settings)
                     request.Workflow
                 );
                 entry = FreezeCapabilities(c, tx, entry);
-                Validate(c, tx, entry, false);
+                entry = Validate(c, tx, entry, false);
                 using var q = Command(
                     c,
                     tx,
@@ -343,8 +362,23 @@ public sealed class WorkflowRegistry(Store store, Settings settings)
                     || entry.Status != "draft"
                 )
                     throw Invalid("The body must match the draft identity, version and status.");
-                entry = FreezeCapabilities(c, tx, entry);
-                Validate(c, tx, entry, false);
+                if (
+                    current.ClassifierBindingNeedsRepair
+                    && entry.Workflow is { Mode: "live", ProviderProfile: not ("jev" or "openai") }
+                )
+                    throw Invalid(
+                        "Choose an explicit classifier provider and its approved model to repair this draft."
+                    );
+                entry = FreezeCapabilities(
+                    c,
+                    tx,
+                    entry with
+                    {
+                        ResolvedClassifierProvider = null,
+                        ClassifierBindingNeedsRepair = false,
+                    }
+                );
+                entry = Validate(c, tx, entry, false);
                 var saved = entry with { Revision = current.Revision + 1 };
                 Update(c, tx, saved, current.Revision);
                 return saved;
@@ -360,8 +394,12 @@ public sealed class WorkflowRegistry(Store store, Settings settings)
                 CheckRevision(current, revision);
                 if (current.Status != "draft")
                     throw Conflict("Only draft versions can be published.");
+                if (current.ClassifierBindingNeedsRepair)
+                    throw Invalid(
+                        "Edit the draft to repair its classifier provider and model before publishing."
+                    );
                 current = FreezeCapabilities(c, tx, current);
-                Validate(c, tx, current, true);
+                current = Validate(c, tx, current, true);
                 var saved = current with { Status = "published", Revision = current.Revision + 1 };
                 Update(c, tx, saved, current.Revision);
                 return saved;
@@ -403,7 +441,7 @@ public sealed class WorkflowRegistry(Store store, Settings settings)
                 if (maximum == int.MaxValue)
                     throw Conflict("No more versions can be created for this identity.");
                 var saved = current with { Version = maximum + 1, Revision = 1, Status = "draft" };
-                Validate(c, tx, saved, false);
+                saved = Validate(c, tx, saved, false, copyStoredBinding: true);
                 Insert(c, tx, saved);
                 return saved;
             }
@@ -424,7 +462,7 @@ public sealed class WorkflowRegistry(Store store, Settings settings)
                     Name = name,
                 };
                 // Unknown is a reserved fallback identity; cloning it creates an ordinary configurable type.
-                Validate(c, tx, saved, false);
+                saved = Validate(c, tx, saved, false, copyStoredBinding: true);
                 Insert(c, tx, saved);
                 return saved;
             }
@@ -476,11 +514,17 @@ public sealed class WorkflowRegistry(Store store, Settings settings)
         else if (entry.Status != "published")
             throw Conflict("Intake requires a published workflow.");
 
-        var config = entry.Workflow!;
         // Called by intake only after checking replay, and using the same acceptance transaction.
+        var config = entry.Workflow!;
         ValidateWorkflow(config);
-        if (config.Mode == "live" && (!settings.OcrConfigured || !settings.ClassifierConfigured))
-            throw Invalid("Live processing requires both provider credentials.");
+        if (config.Mode == "live")
+            config = config with
+            {
+                ProviderProfile = settings.RequireLiveClassifier(
+                    config.ProviderProfile,
+                    config.Model
+                ),
+            };
         var release = Get(c, tx, "release", config.Release.Id, config.Release.Version);
         var types = release
             .Release!.Types.Select(reference =>
@@ -506,7 +550,7 @@ public sealed class WorkflowRegistry(Store store, Settings settings)
             release.Version,
             "",
             config.Mode,
-            config.ProviderProfile,
+            config.ProviderProfile!, // explicit for live; validated as "default" for simulation
             config.Model,
             config.Instructions,
             config.DefaultSplit,
@@ -590,17 +634,20 @@ public sealed class WorkflowRegistry(Store store, Settings settings)
             throw Invalid($"{label} must be unique.");
     }
 
-    private void ValidateWorkflow(WorkflowConfig config)
+    private static void ValidateWorkflow(WorkflowConfig config)
     {
         if (config is null)
             throw Invalid("A workflow configuration is required.");
         ValidateReference(config.Release);
-        if (config.Mode is not ("live" or "simulation") || config.ProviderProfile != "default")
-            throw Invalid("A supported mode and provider profile are required.");
+        if (config.Mode is not ("live" or "simulation"))
+            throw Invalid("Workflow mode must be live or simulation.");
         Text(config.Model, "Model", 200, true);
-        if (config.Model != (config.Mode == "live" ? settings.Model : Simulation.Model))
+        if (
+            config.Mode == "simulation"
+            && (config.ProviderProfile != "default" || config.Model != Simulation.Model)
+        )
             throw Invalid(
-                "Model must match the approved model for this provider profile and mode."
+                $"Simulation requires the default provider profile and {Simulation.Model} model."
             );
         Text(config.Instructions, "Workflow instructions", 8000);
         ValidatePolicy(config.DefaultSplit, false);
@@ -620,6 +667,33 @@ public sealed class WorkflowRegistry(Store store, Settings settings)
             );
     }
 
+    private CatalogEntry PinDraftClassifier(
+        CatalogEntry entry,
+        WorkflowConfig workflow,
+        bool copyStoredBinding
+    )
+    {
+        if (workflow.Mode != "live" || (copyStoredBinding && entry.ClassifierBindingNeedsRepair))
+            return entry;
+        try
+        {
+            var provider = settings.ResolveClassifierProvider(
+                workflow.ProviderProfile,
+                workflow.Model
+            );
+            if (workflow.Model != settings.ClassifierModel(provider))
+                throw Invalid(
+                    $"Model must match the approved model for the {provider} classifier."
+                );
+            return entry with { Workflow = workflow with { ProviderProfile = provider } };
+        }
+        catch (WorkflowException) when (copyStoredBinding)
+        {
+            // Keep the stored values for the editor. Only a subsequent valid edit can clear this flag.
+            return entry with { ClassifierBindingNeedsRepair = true };
+        }
+    }
+
     private static CatalogEntry FreezeCapabilities(
         SqliteConnection c,
         SqliteTransaction tx,
@@ -635,11 +709,12 @@ public sealed class WorkflowRegistry(Store store, Settings settings)
             }
             : entry;
 
-    private void Validate(
+    private CatalogEntry Validate(
         SqliteConnection c,
         SqliteTransaction tx,
         CatalogEntry entry,
-        bool publishing
+        bool publishing,
+        bool copyStoredBinding = false
     )
     {
         ValidateKey(entry.Kind, entry.Id, entry.Version);
@@ -682,6 +757,7 @@ public sealed class WorkflowRegistry(Store store, Settings settings)
                 if (entry.Workflow is not { } workflow)
                     throw Invalid("Workflow configuration is required.");
                 ValidateWorkflow(workflow);
+                entry = PinDraftClassifier(entry, workflow, copyStoredBinding);
                 var release = Dependency(c, tx, "release", workflow.Release, publishing);
                 var capabilities = PlatformPolicies.Freeze(c, tx, workflow.Capabilities);
                 PlatformPolicies.ValidateTaxonomy(
@@ -692,6 +768,7 @@ public sealed class WorkflowRegistry(Store store, Settings settings)
                 Validate(c, tx, release, publishing);
                 break;
         }
+        return entry;
     }
 
     private static CatalogEntry Dependency(
@@ -707,6 +784,27 @@ public sealed class WorkflowRegistry(Store store, Settings settings)
         if (publishing && entry.Status != "published")
             throw Conflict("Publish all referenced release and type versions before publication.");
         return entry;
+    }
+
+    private CatalogEntry ProjectLegacyClassifier(CatalogEntry entry)
+    {
+        if (entry.Workflow is not { Mode: "live", ProviderProfile: null or "default" } live)
+            return entry;
+        try
+        {
+            return entry with
+            {
+                ResolvedClassifierProvider = settings.ResolveClassifierProvider(
+                    live.ProviderProfile,
+                    live.Model
+                ),
+            };
+        }
+        catch (WorkflowException)
+        {
+            // Ambiguous or unknown legacy models remain visible, but cannot run.
+            return entry;
+        }
     }
 
     public WorkflowCatalogResponse Catalog() =>
@@ -813,13 +911,22 @@ public sealed class WorkflowRegistry(Store store, Settings settings)
                     })
                     .ToArray();
                 return new WorkflowCatalogResponse(
-                    entries.ToArray(),
+                    entries.Select(ProjectLegacyClassifier).ToArray(),
                     Default(c, tx),
                     [.. PolicyModes],
                     ["default"],
                     stats,
                     settings.Model
-                );
+                )
+                {
+                    ClassifierProviders = new[] { "jev", "openai" }
+                        .Select(id => new ClassifierProviderInfo(
+                            id,
+                            settings.ClassifierModel(id),
+                            settings.ClassifierReady(id)
+                        ))
+                        .ToArray(),
+                };
             }
         );
 
@@ -888,10 +995,10 @@ public sealed class WorkflowRegistry(Store store, Settings settings)
             []
         );
 
-    private static CatalogEntry[] Seeds(string mode, string model)
+    private static CatalogEntry[] Seeds(string mode, string provider, string model)
     {
         var types = OriginalTypes();
-        var config = OriginalConfig(mode, model);
+        var config = OriginalConfig(mode == "live" ? "live" : "simulation", model);
         return
         [
             .. types.Select(t => new CatalogEntry(
@@ -922,7 +1029,7 @@ public sealed class WorkflowRegistry(Store store, Settings settings)
                 "published",
                 "General logistics",
                 "Classify and review mixed logistics paperwork.",
-                Workflow: config
+                Workflow: mode == "live" ? config with { ProviderProfile = provider } : config
             ),
             new(
                 "release",
@@ -1014,7 +1121,7 @@ public sealed class WorkflowRegistry(Store store, Settings settings)
             && Classification(snapshot.Types) == Classification(OriginalTypes());
     }
 
-    private static WorkflowSnapshot WithHash(WorkflowSnapshot snapshot) =>
+    internal static WorkflowSnapshot WithHash(WorkflowSnapshot snapshot) =>
         snapshot with
         {
             Hash = Convert
@@ -1047,7 +1154,7 @@ public sealed class WorkflowRegistry(Store store, Settings settings)
                 1,
                 "",
                 mode,
-                config.ProviderProfile,
+                "default",
                 config.Model,
                 config.Instructions,
                 config.DefaultSplit,

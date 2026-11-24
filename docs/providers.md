@@ -6,14 +6,14 @@
 
 ## Choose providers
 
-| Step | First choice when configured | OpenAI alternative |
+In a live workflow, select **Jev** or **OpenAI Decisions** for classification. Both take page text and context and return the document type and whether a new document starts. You can configure both keys on the same server. Publishing a workflow pins its classifier and model; adding or removing a key does not switch it to the other service.
+
+| Classifier | Server key | Approved model (default) |
 | --- | --- | --- |
-| Read pages | Azure Document Intelligence receives source files. Set `paprika__AzureEndpoint` (HTTPS) and `paprika__AzureKey`. | OpenAI uses embedded PDF text when a page has at least 40 letters or digits. Otherwise paprika sends a rendered page to the Responses API for transcription with `store: false`. |
-| Classify and split | TypeSafe Jev receives page text and context. Set `paprika__JevApiKey`; `paprika__JevModel` defaults to `jev-latest`. | OpenAI receives page text and context. Its Decisions API returns a document-type choice and a separate decision about whether a new document starts here. |
+| Jev | `paprika__JevApiKey` | `paprika__JevModel` (`jev-latest`) |
+| OpenAI Decisions | `paprika__OpenAiApiKey` or `OPENAI_API_KEY` | `paprika__OpenAiModel` (`gpt-6-luna`) |
 
-Provider selection is independent for each step. With only `OPENAI_API_KEY` (or `paprika__OpenAiApiKey`) set, OpenAI handles both. For OpenAI-only setups, leave the Azure and Jev settings unset, including `paprika__JevModel`.
-
-`paprika__OpenAiModel` selects the Decisions classifier; `paprika__OpenAiReadModel` selects the vision reader. Both default to `gpt-6-luna`. `paprika__OpenAiBaseUrl` overrides the API base URL (`https://api.openai.com/v1`); change it only for a trusted endpoint that supports the required APIs.
+Page reading is independent of that choice. When `paprika__AzureEndpoint` (HTTPS) and `paprika__AzureKey` are configured, Azure Document Intelligence reads the source. Otherwise the OpenAI reader uses embedded PDF text on pages with at least 40 letters or digits and sends other pages to the Responses API for transcription with `store: false`. `paprika__OpenAiReadModel` selects the vision reader (default `gpt-6-luna`); `paprika__OpenAiBaseUrl` overrides the OpenAI API base (`https://api.openai.com/v1`) and must point to a trusted endpoint.
 
 Azure uses Document Intelligence API version `2024-11-30`. Its free tier reads only the first two pages; use a tier that covers the entire file. A provider score is evidence for review, not a measured accuracy rate.
 
@@ -22,8 +22,10 @@ Azure uses Document Intelligence API version `2024-11-30`. Its free tier reads o
 1. Map the chosen key variables from a secret store into **only the running API process**. Keep them out of source, command arguments, the browser, build jobs and frontend terminals. For Azure also set the non-secret HTTPS resource endpoint.
 2. To start a **new** catalog in Live mode, set `paprika__Mode=Live` before launch. The default is `Simulation`; legacy `Demo` also seeds Simulation. For an existing catalog, the variable won't change a published workflow.
 3. Start the [packaged launcher](packaging.md) with this environment, or start the [API separately](development.md#run-in-separate-terminals). Restart the API after changing provider settings. Readiness in the UI means configuration is present; it doesn't verify access or quota.
-4. In [workflow management](workflows.md), publish and select a **Live** workflow with the server-reported `liveModel`. Draft previews still run in Simulation. Upload an approved sample and check the returned page count, text, types and boundaries.
+4. In [workflow management](workflows.md), select **Live**, choose the classifier, check its model, then publish and select that workflow. Intake requires a configured page reader and the selected classifier's key. To change providers for a published workflow, create a new version. Draft previews are simulation-only.
 
 An accepted packet keeps its workflow snapshot on retry and ordinary reprocessing. Explicitly selecting a different workflow creates a linked run. Use [held-out paperwork](evaluation.md) to measure performance before relying on the results.
+
+For an older live workflow with no explicit classifier, paprika checks its saved model against both configured model names (exact match) and the `jev-` / `gpt-` prefixes (case-insensitive). Exactly one provider must match. A missing model, an unknown alias, or conflicting matches require a new workflow version with an explicit provider and approved model. Changing keys is not a way to resolve an ambiguous workflow. Records that predate workflow snapshots entirely retain the legacy server-default behavior.
 
 Provider references: [Azure Document Intelligence](https://learn.microsoft.com/en-us/azure/ai-services/document-intelligence/), [Jev API](https://docs.typesafe.ai/api/system-one.md), [OpenAI Decisions API](https://developers.openai.com/api/docs/guides/decisions).

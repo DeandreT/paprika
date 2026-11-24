@@ -63,9 +63,14 @@ public sealed class WorkflowRegistryTests
         var config = db.Entry("workflow", "general-logistics").Workflow!;
         Assert.Equal(expectedMode, config.Mode);
         Assert.Equal(expectedModel, config.Model);
+        Assert.Equal(expectedMode == "live" ? "jev" : "default", config.ProviderProfile);
         Assert.All(
             db.Registry.Catalog().Entries.Where(e => e.Kind == "workflow" && e.Status == "draft"),
-            e => Assert.Equal("simulation", e.Workflow!.Mode)
+            e =>
+            {
+                Assert.Equal("simulation", e.Workflow!.Mode);
+                Assert.Equal("default", e.Workflow.ProviderProfile);
+            }
         );
     }
 
@@ -552,6 +557,180 @@ public sealed class WorkflowRegistryTests
         db.Configuration["paprika:AzureKey"] = "test-only";
         db.Configuration["paprika:JevApiKey"] = "test-only";
         Assert.Equal("approved-model", db.Resolve(new(live.Id, 1)).Model);
+    }
+
+    [Fact]
+    public void LiveCatalogValidatesEachProviderModelAndQueuesOnlyWithSelectedCredentials()
+    {
+        using var db = new Database();
+        db.Configuration["paprika:OpenAiModel"] = "gpt-approved";
+        db.Configuration["paprika:JevApiKey"] = "jev-test-key";
+        var catalog = db.Registry.Catalog();
+        Assert.Equal(
+            new[]
+            {
+                new ClassifierProviderInfo("jev", "approved-model", true),
+                new ClassifierProviderInfo("openai", "gpt-approved", false),
+            },
+            catalog.ClassifierProviders
+        );
+        Assert.Equal("approved-model", catalog.LiveModel);
+        Assert.Contains("default", catalog.ProviderProfiles);
+        var live = db.Entry("workflow", "general-logistics").Workflow! with
+        {
+            Mode = "live",
+            Model = "gpt-approved",
+        };
+        CatalogEntry Create(string provider, string model) =>
+            db.Registry.Create(
+                new(
+                    "workflow",
+                    null,
+                    "Live",
+                    "",
+                    Workflow: live with
+                    {
+                        ProviderProfile = provider,
+                        Model = model,
+                    }
+                )
+            );
+        Error(400, () => Create("jev", "gpt-approved"));
+        Error(400, () => Create("openai", "approved-model"));
+        Error(400, () => Create("unsupported", "approved-model"));
+        var openai = Create("default", "gpt-approved");
+        var jev = Create("jev", "approved-model");
+        Assert.Equal("openai", openai.Workflow!.ProviderProfile);
+        db.Configuration["paprika:OpenAiModel"] = "different";
+        Error(400, () => db.Registry.Publish("workflow", openai.Id, 1, 1));
+        db.Configuration["paprika:OpenAiModel"] = "gpt-approved";
+        db.Registry.Publish("workflow", openai.Id, 1, 1);
+        db.Registry.Publish("workflow", jev.Id, 1, 1);
+        Assert.Contains(
+            "OCR",
+            Assert.Throws<WorkflowException>(() => db.Resolve(new(jev.Id, 1))).Message,
+            StringComparison.OrdinalIgnoreCase
+        );
+        db.Configuration["paprika:AzureEndpoint"] = "https://example.invalid";
+        db.Configuration["paprika:AzureKey"] = "ocr-test-key";
+        var unready = db.Store.Accept(new Packet(), null, new(openai.Id, 1));
+        Assert.Equal(400, unready.Code);
+        Assert.Contains("openai", unready.Error!, StringComparison.OrdinalIgnoreCase);
+        Assert.Empty(db.Store.All());
+        var jevHash = db.Resolve(new(jev.Id, 1)).Hash;
+        db.Configuration["paprika:OpenAiApiKey"] = "openai-test-key";
+        Assert.Equal(jevHash, db.Resolve(new(jev.Id, 1)).Hash);
+        var accepted = db.Store.Accept(new Packet(), null, new(openai.Id, 1));
+        Assert.Equal("openai", accepted.Packet!.Workflow!.ProviderProfile);
+        Assert.Equal("gpt-approved", accepted.Packet.Workflow.Model);
+    }
+
+    [Theory]
+    [InlineData("default")]
+    [InlineData(null)]
+    public void LegacyLiveCatalogPinsNewVersionsAndIntakeWithoutRewritingThePublication(
+        string? profile
+    )
+    {
+        using var db = new Database("live");
+        db.Configuration["paprika:OpenAiApiKey"] = "openai-test-key";
+        db.Configuration["paprika:OpenAiModel"] = "gpt-approved";
+        using var c = new SqliteConnection(db.Store.ConnectionString);
+        c.Open();
+        using var q = c.CreateCommand();
+        q.CommandText = """
+            UPDATE workflow_catalog SET json=json_set(json,'$.workflow.providerProfile',$profile,'$.workflow.model','gpt-approved')
+            WHERE kind='workflow' AND id='general-logistics' AND version=1
+            """;
+        q.Parameters.AddWithValue("$profile", (object?)profile ?? DBNull.Value);
+        Assert.Equal(1, q.ExecuteNonQuery());
+        q.Parameters.Clear();
+        q.CommandText =
+            "SELECT json FROM workflow_catalog WHERE kind='workflow' AND id='general-logistics' AND version=1";
+        var original = (string)q.ExecuteScalar()!;
+        var old = db.Entry("workflow", "general-logistics");
+        Assert.Equal(profile, old.Workflow!.ProviderProfile);
+        Assert.Equal("openai", old.ResolvedClassifierProvider);
+        var snapshot = db.Resolve();
+        Assert.Equal("openai", snapshot.ProviderProfile);
+        db.Configuration["paprika:JevApiKey"] = "jev-test-key";
+        Assert.Equal(snapshot.Hash, db.Resolve().Hash);
+        var clone = db.Registry.Clone(old.Kind, old.Id, 1, 1, "Clone");
+        var next = db.Registry.NewVersion(old.Kind, old.Id, 1, 1);
+        Assert.Equal("openai", clone.Workflow!.ProviderProfile);
+        Assert.Equal("openai", next.Workflow!.ProviderProfile);
+        Assert.Equal(
+            "openai",
+            db.Registry.Publish(next.Kind, next.Id, 2, 1).Workflow!.ProviderProfile
+        );
+        db.Configuration["paprika:JevModel"] = "gpt-approved";
+        Assert.Null(db.Entry(old.Kind, old.Id).ResolvedClassifierProvider);
+        Error(400, () => db.Resolve());
+        Assert.Equal("openai", db.Resolve(new(next.Id, 2)).ProviderProfile);
+        var repair = db.Registry.Clone(old.Kind, old.Id, 1, 1, "Repair ambiguous workflow");
+        Assert.True(repair.ClassifierBindingNeedsRepair);
+        Assert.Equal(profile, repair.Workflow!.ProviderProfile);
+        Assert.Equal("gpt-approved", repair.Workflow.Model);
+        // Even if the ambiguity disappears, the copied draft needs an explicit choice.
+        db.Configuration["paprika:JevModel"] = "approved-model";
+        Error(400, () => db.Registry.Publish(repair.Kind, repair.Id, 1, 1));
+        Error(400, () =>
+            db.Registry.Edit(
+                repair.Kind,
+                repair.Id,
+                1,
+                repair with
+                {
+                    ClassifierBindingNeedsRepair = false,
+                }
+            )
+        );
+        var repaired = db.Registry.Edit(
+            repair.Kind,
+            repair.Id,
+            1,
+            repair with
+            {
+                Workflow = repair.Workflow with { ProviderProfile = "openai" },
+            }
+        );
+        Assert.False(repaired.ClassifierBindingNeedsRepair);
+        db.Registry.Publish(repaired.Kind, repaired.Id, 1, repaired.Revision);
+        Assert.Equal("openai", db.Resolve(new(repaired.Id, 1)).ProviderProfile);
+        Assert.Equal(original, q.ExecuteScalar());
+    }
+
+    [Fact]
+    public void StalePublishedModelCanBeRepairedInNewVersionWithoutRelaxingOtherValidation()
+    {
+        using var db = new Database("live");
+        var old = db.Entry("workflow", "general-logistics");
+        db.Configuration["paprika:JevModel"] = "replacement";
+        var repair = db.Registry.NewVersion(old.Kind, old.Id, 1, 1);
+        Assert.True(db.Entry(repair.Kind, repair.Id, repair.Version).ClassifierBindingNeedsRepair);
+        Assert.Equal("jev", repair.Workflow!.ProviderProfile);
+        Assert.Equal("approved-model", repair.Workflow.Model);
+        Error(400, () => db.Registry.Publish(repair.Kind, repair.Id, repair.Version, 1));
+        Error(400, () => db.Registry.Edit(repair.Kind, repair.Id, repair.Version, repair));
+        Error(400, () => db.Registry.Clone(old.Kind, old.Id, 1, 1, ""));
+        repair = db.Registry.Edit(
+            repair.Kind,
+            repair.Id,
+            repair.Version,
+            repair with
+            {
+                Workflow = repair.Workflow with { Model = "replacement" },
+            }
+        );
+        var published = db.Registry.Publish(
+            repair.Kind,
+            repair.Id,
+            repair.Version,
+            repair.Revision
+        );
+        Assert.Equal("replacement", published.Workflow!.Model);
+        Assert.False(published.ClassifierBindingNeedsRepair);
+        Assert.Equal("approved-model", db.Entry(old.Kind, old.Id).Workflow!.Model);
     }
 
     [Fact]

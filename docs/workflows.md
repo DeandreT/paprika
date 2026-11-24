@@ -57,7 +57,7 @@ Previewing a draft helps test rule behavior; it does not measure live OCR or mod
 
 ## Providers and review
 
-Simulation extracts embedded PDF text and uses configured local rules. Scanned pages without text remain unknown. Live workflows use the approved server-side provider profile and configured model; credentials are never stored in workflow definitions or snapshots. The application reports configuration readiness, while successful live authentication and quality require separate service verification.
+Simulation extracts embedded PDF text and uses configured local rules. Scanned pages without text remain unknown. For a live workflow, choose Jev or OpenAI Decisions and review the approved model for that classifier. The workflow version keeps that pair even when other provider keys are added. Credentials are never stored in workflow definitions or snapshots. Readiness means configuration is present, not that a live service has authenticated the key. See [provider configuration](providers.md).
 
 Enabled identifier kinds control candidate extraction. Required kinds add review reasons when evidence is missing. Conflicting candidates remain visible for manual business-reference assignment. Workflow-specific type choices apply when reviewing both current and historical runs.
 
