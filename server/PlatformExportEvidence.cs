@@ -9,6 +9,11 @@ public static class PlatformExportEvidence
     {
         using var c = store.Open();
         using var tx = c.BeginTransaction(deferred: true);
+        return Read(c, tx, packet);
+    }
+
+    internal static object Read(SqliteConnection c, SqliteTransaction tx, Packet packet)
+    {
         var reference = Rows(
             c,
             tx,

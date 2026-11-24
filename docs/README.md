@@ -19,6 +19,7 @@
 ## Integrate a client
 
 - [Use the packet API](api.md) for upload, review and export; import the running server’s OpenAPI contract.
+- [Consume approved fields](approved-fields.md) from the final export or connector delivery.
 
 ## Operate and maintain
 

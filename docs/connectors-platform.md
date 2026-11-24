@@ -74,6 +74,8 @@ An optional `BearerToken` is read only when sending a request. Catalog responses
 
 HTTP delivery POSTs `application/zip` with `Idempotency-Key` and `X-Content-SHA256`. Any 2xx acknowledges **transport only**; bounded response bodies are discarded, never interpreted as business acceptance. Lookup POSTs `{ reference }` and expects an array of `{ reference, recordId, label }`, maximum 100 matches/256 KiB. Delivery response limit is 64 KiB. Both have a 20-second request timeout and no redirects. No real downstream behavior or receipt format is inferred.
 
+When the workflow configures extraction, consume the final approved values from [`fields.json`](approved-fields.md) inside the ZIP. Retries use the original queued ZIP and do not regenerate this projection.
+
 Transient delivery failures retry with bounded backoff, up to five attempts. Approval/configuration/content conflicts become failed jobs. `POST /api/connectors/deliveries/{id}/retry` retries failed jobs using original bytes/key after checking approval again. `GET /api/connectors/deliveries?packetId=...` lists the ledger. These operational/global routes remain administrative by default.
 
 Business acknowledgement is independent: `POST /api/connectors/deliveries/{id}/receipt` takes `{ businessStatus: "accepted" | "rejected", receiptId }`. An operator records an independently obtained business receipt only after transport ACK. The recorded receipt is immutable and attributed to the server-resolved actor. This is not an automatic receiver callback or proof that a downstream business system accepted the ZIP contents.

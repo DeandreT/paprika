@@ -1,0 +1,14 @@
+{
+  "id": "receiving-fields",
+  "version": 1,
+  "documentType": "bol",
+  "fields": [
+    { "name": "shipment_id", "kind": "text", "label": "Shipment ID", "required": true },
+    { "name": "bol", "kind": "text", "label": "BOL", "required": true },
+    { "name": "po", "kind": "text", "label": "PO", "required": false },
+    { "name": "carrier", "kind": "text", "label": "Carrier", "required": false },
+    { "name": "pickup_address", "kind": "text", "label": "Pickup address", "required": false },
+    { "name": "delivery_address", "kind": "text", "label": "Delivery address", "required": false }
+  ],
+  "tables": []
+}
