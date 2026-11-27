@@ -37,6 +37,8 @@ In **Platform tools → Quality and training**, open **Quality, independent QA a
 
 Each dataset has a permanent ID. Example IDs are immutable **within** a dataset. The same ID or text can occur in another dataset with a different label; only members of the selected dataset participate in deduplication, evaluation and training. Re-importing identical rows within a dataset is safe; conflicting content fails the entire batch. The Legacy dataset (ID `default`) contains pre-upgrade examples. Its name is reserved. The original import, list and train routes continue to target only Legacy.
 
+Dataset names are unique without regard to case. Creating an existing name returns `409`; refresh the dataset list to select it. Renaming checks the name the operator last saw. A stale rename returns `409`, while repeating an already-applied rename succeeds. Training runs on one consistent snapshot. Repeating it creates another model record with the same artifact hash when the dataset contents, dataset name and threshold are unchanged.
+
 New model artifacts record the dataset ID and name as they were at training time. `datasetExampleCount` and `datasetSnapshotHash` describe **all** members before deduplication, including their IDs and provenance. The existing `datasetHash` still describes the unique labeled texts used for splitting. Renaming the dataset or importing more examples cannot change the model's parameters, recorded provenance or hash. Older artifacts remain byte-compatible, with no new provenance fields inserted. See [training API routes and request bodies](api.md#local-page-type-classifier-datasets).
 
 ### Collect human-approved page labels
