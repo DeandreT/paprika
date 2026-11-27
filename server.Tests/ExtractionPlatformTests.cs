@@ -185,6 +185,19 @@ public sealed class ExtractionPlatformTests
         Assert.Contains(ExtractionPlatform.Blockers(after, partial), b => b.Contains("coverage"));
         var completed = ExtractionPlatform.RunConfigured(c, tx, after)!;
         Assert.Equal(3, completed.Results.Length);
+        var reviewedCarry = ExtractionStorage.Get<JsonElement>(c, tx, "correction", partial.Id);
+        var regeneratedCarry = ExtractionStorage.Get<JsonElement>(
+            c,
+            tx,
+            "correction",
+            completed.Id
+        );
+        Assert.Equal(partial.Id, regeneratedCarry.GetProperty("previousRunId").GetString());
+        foreach (var entry in new[] { reviewedCarry, regeneratedCarry })
+            Assert.Equal(
+                after.Documents[0].Id,
+                Assert.Single(entry.GetProperty("documentIds").EnumerateArray()).GetString()
+            );
         var preserved = completed.Results.Single(r => r.DocumentId == after.Documents[0].Id).Fields[
             0
         ];

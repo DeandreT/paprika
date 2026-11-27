@@ -190,13 +190,12 @@ public sealed class ApprovedFieldExportTests
     }
 
     [Fact]
-    public async Task OptionalFieldClearedByReviewerExportsNullWithCorrectionStatus()
+    public async Task OptionalOmissionCarriesToApprovalAndExportsCorrectedNullWithOriginalEvidence()
     {
         await using var app = new ExportFactory();
         using var client = app.CreateClient();
         client.DefaultRequestHeaders.Add("X-paprika", "1");
-        var packet = app.AddPacket(Definition());
-        ExtractionPlatform.RunConfigured(app.Store, packet);
+        var packet = Approve(app.Store, app.AddPacket(Definition()));
         var run = ExtractionPlatform.Current(app.Store, packet)!;
         var original = Assert.Single(run.Results).Fields.Single(f => f.Name == "paid");
         Assert.Equal("true", original.Value);
@@ -209,22 +208,42 @@ public sealed class ApprovedFieldExportTests
                 "paid",
                 null,
                 "Omit the optional payment field.",
-                original.Evidence
+                [],
+                Category: "omit"
             )
         );
         corrected.EnsureSuccessStatusCode();
+        await AssertBlocked(client, packet, "Approve");
+        var history = (
+            await client.GetFromJsonAsync<ExtractionHistoryResponse>($"/api/extraction/{packet.Id}")
+        )!;
+        var omission = Assert.Single(history.Corrections);
+        Assert.Equal(
+            "omit",
+            omission.GetProperty("correction").GetProperty("category").GetString()
+        );
+        Assert.Equal(JsonValueKind.Null, omission.GetProperty("normalizedValue").ValueKind);
+        Assert.Equal("true", omission.GetProperty("before").GetProperty("value").GetString());
+        var omitted = omission.GetProperty("after").Deserialize<ExtractionValue>(Contract.Json)!;
+        Assert.Null(omitted.Value);
+        Assert.Equal(original.Evidence, omitted.Evidence);
         var approved = Approve(app.Store, app.Store.Get(packet.Id)!);
         using var zip = new ZipArchive(
             new MemoryStream(await client.GetByteArrayAsync(ExportUrl(approved)))
         );
         using var fields = ReadJson(zip, "fields.json");
+        Assert.Equal(1, fields.RootElement.GetProperty("schemaVersion").GetInt32());
         var paid = Assert
             .Single(fields.RootElement.GetProperty("documents").EnumerateArray())
             .GetProperty("fields")
             .EnumerateArray()
             .Single(f => f.GetProperty("name").GetString() == "paid");
         AssertField(paid, "boolean", null, "corrected");
-        Assert.Single(paid.GetProperty("evidence").EnumerateArray());
+        var evidence = Assert.Single(paid.GetProperty("evidence").EnumerateArray());
+        var span = Assert.Single(original.Evidence);
+        Assert.Equal(span.PageId, evidence.GetProperty("pageId").GetString());
+        Assert.Equal(span.Offset, evidence.GetProperty("offset").GetInt32());
+        Assert.Equal(span.Length, evidence.GetProperty("length").GetInt32());
     }
 
     [Fact]
@@ -271,7 +290,7 @@ public sealed class ApprovedFieldExportTests
         Assert.NotNull(zip.GetEntry("manifest.json"));
     }
 
-    private static ExtractionDefinition Definition() =>
+    internal static ExtractionDefinition Definition() =>
         new(
             "artificial-invoice",
             1,
@@ -286,7 +305,7 @@ public sealed class ApprovedFieldExportTests
             "invoice"
         );
 
-    private static ExtractionRun AddInvoiceRun(Store store, ExtractionRun run, string invoice)
+    internal static ExtractionRun AddInvoiceRun(Store store, ExtractionRun run, string invoice)
     {
         var result = Assert.Single(run.Results);
         var added = run with
@@ -416,7 +435,7 @@ public sealed class ApprovedFieldExportTests
         return (receipt, path, bytes);
     }
 
-    private sealed class ExportFactory : WebApplicationFactory<Program>
+    internal sealed class ExportFactory : WebApplicationFactory<Program>
     {
         private readonly string root = Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
@@ -443,7 +462,8 @@ public sealed class ApprovedFieldExportTests
         public Packet AddPacket(
             ExtractionDefinition? definition = null,
             bool includeExcludedDocument = false,
-            ReferencePolicy? reference = null
+            ReferencePolicy? reference = null,
+            string invoiceText = InvoiceText
         )
         {
             var workflow = WorkflowRegistry.Legacy() with
@@ -468,7 +488,7 @@ public sealed class ApprovedFieldExportTests
             };
             var source = new Source { Name = "ARTIFICIAL.pdf", Extension = ".pdf" };
             packet.Sources.Add(source);
-            AddPage("invoice", InvoiceText);
+            AddPage("invoice", invoiceText);
             if (includeExcludedDocument)
                 AddPage("bol", "Invoice: ARTIFICIAL-EXCLUDED");
             source.PageCount = packet.Pages.Count;

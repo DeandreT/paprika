@@ -33,6 +33,6 @@ Register a singleton implementation for module-owned tables. Return blockers for
 
 ## UI and contracts
 
-Standalone panels: QualityPanelComponent, ReferencePanelComponent, OperationsPanelComponent, ExtractionPanelComponent, CasePanelComponent and FlowPanelComponent. Selectors app-quality-panel, app-reference-panel, app-operations-panel, app-extraction-panel, app-case-panel, app-flow-panel. Common inputs packetId:string and revision:number, refreshed:void output. Empty packet ID supports catalog/global actions before selection. Main embeds panels and owns shared workflow editor preservation of capabilities.
+Standalone panels: QualityPanelComponent, ReferencePanelComponent, OperationsPanelComponent, ExtractionPanelComponent, CasePanelComponent and FlowPanelComponent. Selectors app-quality-panel, app-reference-panel, app-operations-panel, app-extraction-panel, app-case-panel, app-flow-panel. Most accept `packetId` and `revision` and emit `refreshed`. The extraction panel takes the selected `packet` and returns the revision from a successful field correction. Global catalog actions can run without a selected packet. Main embeds panels and owns shared workflow editor preservation of capabilities.
 
 Every API uses typed request/response metadata and named operations. No secret values in catalog, responses, snapshots or logs. Real transport acknowledgments are distinguished from business acceptance. Synthetic reference/model measurements retain explicit provenance.

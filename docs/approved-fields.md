@@ -16,6 +16,8 @@ When a workflow has an extraction definition, its approved packet ZIP includes `
 
 There are no extraction-history rows, table cells, or raw evidence excerpts in this projection. A packet without configured extraction has no `fields.json`. An unapproved revision or a revision that fails required field coverage cannot be exported as approved.
 
+A reviewer choosing **Omit from delivery** on an optional field produces `"status": "corrected", "value": null`. The field stays in the array and may retain evidence pointing to text that was present. **Wrong text selected** moves the evidence reference to the reviewer's selected span. **Text read incorrectly** keeps the reference even when the approved value differs from that text. Categories and notes are available in [packet correction history](extraction-platform.md#review-a-field), not in the v1 projection. A legacy cleared value has the same downstream representation as an omission; do not infer a review category from `fields.json`.
+
 Previously queued connector jobs keep their original bytes and idempotency key. A job created by an older version of paprika may therefore still deliver a ZIP without `fields.json` when retried.
 
 ## Receiving workflow
