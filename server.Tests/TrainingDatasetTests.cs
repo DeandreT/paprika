@@ -216,6 +216,21 @@ public sealed class TrainingDatasetTests
         }
         using var query = await client.GetAsync(Training + "/examples?datasetId=no-such-dataset");
         Assert.Equal(HttpStatusCode.BadRequest, query.StatusCode);
+        using var createWithId = await client.PostAsJsonAsync(
+            Datasets,
+            new { name = "Misplaced ID", datasetId = "no-such-dataset" }
+        );
+        Assert.Equal(HttpStatusCode.BadRequest, createWithId.StatusCode);
+        using var renameWithId = await client.PutAsJsonAsync(
+            PathFor(Legacy),
+            new
+            {
+                expectedName = Legacy.Name,
+                name = "Wrong target",
+                datasetId = "no-such-dataset",
+            }
+        );
+        Assert.Equal(HttpStatusCode.BadRequest, renameWithId.StatusCode);
         foreach (var wrongId in new string?[] { null, "", "no-such-dataset" })
         {
             using var import = await client.PostAsJsonAsync(

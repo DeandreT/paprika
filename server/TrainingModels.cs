@@ -15,8 +15,10 @@ public sealed record TrainingModelRef(
 
 public sealed record TrainingDataset(string Id, string Name);
 
+[JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
 public sealed record TrainingDatasetRequest(string Name);
 
+[JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
 public sealed record TrainingDatasetRenameRequest(string Name, string ExpectedName);
 
 public sealed record TrainingExampleSummary(string Id, string Label, bool Synthetic);
