@@ -93,7 +93,7 @@
                   @if (value() && !normalized()) { <p class="small problem">Enter a valid {{ field.definition.kind }}.</p> }
                 }
                 @case ('omit') {
-                  <p class="small">No value will be delivered. The source prediction and evidence stay in the record.</p>
+                  <p class="small">The approved field will have a null value. The source PDF, prediction and evidence stay in the packet.</p>
                   @if (field.definition.required) { <p class="small problem">This field is required. The packet cannot be approved while its value is omitted.</p> }
                 }
               }
