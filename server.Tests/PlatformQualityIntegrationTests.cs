@@ -414,13 +414,13 @@ public sealed class PlatformQualityIntegrationTests
         return new(published.Id, published.Version);
     }
 
-    private static async Task<T> Get<T>(HttpClient client, string url)
+    internal static async Task<T> Get<T>(HttpClient client, string url)
     {
         using var response = await client.GetAsync(url);
         return await Read<T>(response);
     }
 
-    private static async Task Claim(HttpClient client, PacketResponse packet)
+    internal static async Task Claim(HttpClient client, PacketResponse packet)
     {
         var task = await Post<OperationsTask>(
             client,
@@ -434,13 +434,13 @@ public sealed class PlatformQualityIntegrationTests
         );
     }
 
-    private static async Task<T> Post<T>(HttpClient client, string url, object body)
+    internal static async Task<T> Post<T>(HttpClient client, string url, object body)
     {
         using var response = await client.PostAsJsonAsync(url, body);
         return await Read<T>(response);
     }
 
-    private static async Task<T> Put<T>(HttpClient client, string url, object body)
+    internal static async Task<T> Put<T>(HttpClient client, string url, object body)
     {
         using var response = await client.PutAsJsonAsync(url, body);
         return await Read<T>(response);
@@ -456,7 +456,7 @@ public sealed class PlatformQualityIntegrationTests
         return JsonSerializer.Deserialize<T>(body, Contract.Json)!;
     }
 
-    private sealed class QualityFactory : WebApplicationFactory<Program>
+    internal sealed class QualityFactory : WebApplicationFactory<Program>
     {
         public string Root { get; } =
             Path.Combine(
