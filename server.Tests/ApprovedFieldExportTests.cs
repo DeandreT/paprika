@@ -189,8 +189,12 @@ public sealed class ApprovedFieldExportTests
         await AssertBlocked(client, edited, "Approve");
     }
 
-    [Fact]
-    public async Task OptionalOmissionCarriesToApprovalAndExportsCorrectedNullWithOriginalEvidence()
+    [Theory]
+    [InlineData("omit")]
+    [InlineData(null)]
+    public async Task OptionalClearCarriesToApprovalAndExportsCorrectedNullWithOriginalEvidence(
+        string? category
+    )
     {
         await using var app = new ExportFactory();
         using var client = app.CreateClient();
@@ -208,8 +212,8 @@ public sealed class ApprovedFieldExportTests
                 "paid",
                 null,
                 "Omit the optional payment field.",
-                [],
-                Category: "omit"
+                category == null ? original.Evidence : [],
+                Category: category
             )
         );
         corrected.EnsureSuccessStatusCode();
@@ -219,7 +223,7 @@ public sealed class ApprovedFieldExportTests
         )!;
         var omission = Assert.Single(history.Corrections);
         Assert.Equal(
-            "omit",
+            category,
             omission.GetProperty("correction").GetProperty("category").GetString()
         );
         Assert.Equal(JsonValueKind.Null, omission.GetProperty("normalizedValue").ValueKind);
