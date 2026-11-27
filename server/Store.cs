@@ -398,17 +398,27 @@ public sealed class Store
         }
     }
 
-    public void Save(Packet p)
+    public void Save(Packet p) => Save(p, null);
+
+    internal void Save(Packet p, AppliedPagePrediction? prediction)
     {
         lock (gate)
         {
             using var c = Open();
+            using var tx = prediction is null ? null : c.BeginTransaction();
             using var q = c.CreateCommand();
+            q.Transaction = tx;
             q.CommandText =
                 "INSERT INTO packets VALUES($id,$json) ON CONFLICT(id) DO UPDATE SET json=$json WHERE json_extract(packets.json,'$.status') != 'cancelled'";
             q.Parameters.AddWithValue("$id", p.Id);
             q.Parameters.AddWithValue("$json", JsonSerializer.Serialize(p, Contract.Json));
-            q.ExecuteNonQuery();
+            var changed = q.ExecuteNonQuery();
+            if (tx is not null)
+            {
+                if (changed > 0)
+                    PagePredictionEvidence.Write(c, tx, p, prediction!);
+                tx.Commit();
+            }
         }
     }
 

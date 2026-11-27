@@ -4,6 +4,7 @@ import { FormsModule } from "@angular/forms";
 import { JsonPipe, PercentPipe } from "@angular/common";
 import { firstValueFrom, Subscription } from "rxjs";
 import { apiError } from "./workflow-store";
+import { CandidateReviewComponent } from "./candidate-review";
 
 export interface TrainingDataset { id: string; name: string }
 interface ExampleSummary { id: string; label: string; synthetic: boolean }
@@ -24,7 +25,7 @@ function reviewDatasetFor(draft: Draft | undefined): string | null {
 }
 
 @Component({
-  selector: "app-quality-panel", standalone: true, imports: [FormsModule, JsonPipe, PercentPipe],
+  selector: "app-quality-panel", standalone: true, imports: [FormsModule, JsonPipe, PercentPipe, CandidateReviewComponent],
   template: `
   <details (toggle)="opened($event)"><summary>Quality, independent QA and trained text models</summary>
     <p>Scores are not measured accuracy. Manual approval is the default. Synthetic models cannot approve operational packets.</p>
@@ -68,6 +69,7 @@ function reviewDatasetFor(draft: Draft | undefined): string | null {
             <button type="button" (click)="renameDataset()" [disabled]="!renameTo.trim() || renameTo.trim() === dataset.name">Save dataset name</button>
           </details>
         }
+        <app-candidate-review [dataset]="dataset" [packetId]="packetId" (reviewed)="hideExamples()" />
         <h5>Examples in {{dataset.name}}</h5>
         <p>List example IDs, labels and whether each example is synthetic. Document text and provenance are kept out of this view.</p>
         <button type="button" (click)="listExamples()" [disabled]="examplesLoading()">List examples</button>

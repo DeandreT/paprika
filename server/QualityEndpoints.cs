@@ -8,6 +8,8 @@ public static class QualityEndpoints
     public static IServiceCollection AddQualityPlatform(this IServiceCollection services) =>
         services
             .AddSingleton<TrainingStore>()
+            .AddSingleton<TeacherCandidates>()
+            .AddSingleton<IOperationsRetentionParticipant, TeacherCandidateRetention>()
             .AddSingleton<QualityStore>()
             .AddSingleton<IOperationsRetentionParticipant, QualityRetentionParticipant>();
 
@@ -149,6 +151,7 @@ public static class QualityEndpoints
             }
         );
         var datasets = trainingGroup.MapGroup("/datasets");
+        datasets.MapTeacherCandidates();
         datasets
             .MapGet("", (TrainingStore store) => store.Datasets())
             .WithName("ListTrainingDatasets")

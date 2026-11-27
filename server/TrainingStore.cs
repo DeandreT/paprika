@@ -56,6 +56,7 @@ public sealed class TrainingStore
                 """;
             q.ExecuteNonQuery();
         }
+        TeacherCandidates.Initialize(c, tx);
         tx.Commit();
     }
 
@@ -168,10 +169,13 @@ public sealed class TrainingStore
         RequireDataset(c, tx, datasetId);
         using var q = c.CreateCommand();
         q.Transaction = tx;
-        q.CommandText = """
-            SELECT id,json_extract(json,'$.label'),coalesce(json_extract(json,'$.synthetic'),1)
-            FROM training_examples WHERE dataset_id=$dataset ORDER BY id
-            """;
+        q.CommandText =
+            """
+                SELECT id,json_extract(json,'$.label'),coalesce(json_extract(json,'$.synthetic'),1)
+                FROM training_examples WHERE dataset_id=$dataset
+                """
+            + ActiveExampleFilter(c, tx)
+            + " ORDER BY id";
         q.Parameters.AddWithValue("$dataset", datasetId);
         using var r = q.ExecuteReader();
         var rows = new List<TrainingExampleSummary>();
@@ -180,7 +184,7 @@ public sealed class TrainingStore
         return rows.ToArray();
     }
 
-    private static TrainingExample[] ReadExamples(
+    internal static TrainingExample[] ReadExamples(
         SqliteConnection c,
         SqliteTransaction tx,
         string datasetId
@@ -188,7 +192,10 @@ public sealed class TrainingStore
     {
         using var q = c.CreateCommand();
         q.Transaction = tx;
-        q.CommandText = "SELECT json FROM training_examples WHERE dataset_id=$dataset ORDER BY id";
+        q.CommandText =
+            "SELECT json FROM training_examples WHERE dataset_id=$dataset"
+            + ActiveExampleFilter(c, tx)
+            + " ORDER BY id";
         q.Parameters.AddWithValue("$dataset", datasetId);
         using var r = q.ExecuteReader();
         var rows = new List<TrainingExample>();
@@ -197,10 +204,22 @@ public sealed class TrainingStore
         return rows.ToArray();
     }
 
+    // Manually imported examples may reference external packet IDs. Only an actual
+    // local archive/purge tombstone hides those rows; packet-less imports remain portable.
+    private static string ActiveExampleFilter(SqliteConnection c, SqliteTransaction tx) =>
+        OperationsPlatformStore.TableExists(c, tx, "operations_tombstones")
+            ? " AND NOT EXISTS(SELECT 1 FROM operations_tombstones a WHERE a.packet_id=json_extract(training_examples.json,'$.packetId'))"
+            : "";
+
     public int Import(TrainingExample[] examples, string datasetId = DefaultDatasetId)
     {
         if (examples is null || examples.Length is < 1 or > 10000)
             throw new WorkflowException(400, "Import 1–10000 labeled examples.");
+        if (examples.Any(e => e?.Id?.StartsWith("teacher:", StringComparison.Ordinal) == true))
+            throw new WorkflowException(
+                400,
+                "Teacher example IDs are reserved for reviewed predictions."
+            );
         foreach (var e in examples)
             if (
                 e is null
@@ -275,11 +294,16 @@ public sealed class TrainingStore
         using var tx = c.BeginTransaction(deferred: false);
         var dataset = RequireDataset(c, tx, datasetId);
         var examples = ReadExamples(c, tx, datasetId);
-        var artifact = TrainingClassifier.Fit(examples, request.Threshold) with
+        var reviewed = TeacherCandidates.Reviewed(c, tx, datasetId);
+        var teachers = reviewed.Select(TeacherCandidates.Example).ToArray();
+        var artifact = TrainingClassifier.Fit(examples, request.Threshold, teachers) with
         {
             Dataset = dataset,
-            DatasetSnapshotHash = SnapshotHash(examples),
-            DatasetExampleCount = examples.Length,
+            DatasetSnapshotHash =
+                reviewed.Length == 0
+                    ? SnapshotHash(examples)
+                    : SnapshotHash(new { Examples = examples, TeacherReviews = reviewed }),
+            DatasetExampleCount = examples.Length + teachers.Length,
         };
         string payload = JsonSerializer.Serialize(artifact, Contract.Json);
         var model = new TrainingModelResponse(
@@ -297,12 +321,13 @@ public sealed class TrainingStore
         q.Parameters.AddWithValue("$id", model.Id);
         q.Parameters.AddWithValue("$json", JsonSerializer.Serialize(model, Contract.Json));
         q.ExecuteNonQuery();
+        TeacherCandidates.RecordModelSources(c, tx, model.Id, reviewed);
         tx.Commit();
         return model;
     }
 
     // SHA-256 of the complete JSON array in persisted ID order, before deduplication or splitting.
-    private static string SnapshotHash(TrainingExample[] examples)
+    private static string SnapshotHash<T>(T examples)
     {
         using var hash = SHA256.Create();
         using var stream = new CryptoStream(Stream.Null, hash, CryptoStreamMode.Write);

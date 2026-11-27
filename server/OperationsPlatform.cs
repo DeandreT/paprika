@@ -949,7 +949,7 @@ public sealed class OperationsPlatformStore
         return false;
     }
 
-    private static bool TableExists(SqliteConnection c, SqliteTransaction tx, string name)
+    internal static bool TableExists(SqliteConnection c, SqliteTransaction tx, string name)
     {
         using var q = Command(
             c,

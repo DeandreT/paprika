@@ -47,6 +47,39 @@ Without an explicit review collection, existing workflows (no model, a historica
 
 ## Data, evaluation and approval
 
+### Review predictions as teacher labels
+
+Select a dataset and open **Create candidate labels from predictions**. Choose a source packet in the inbox, then import its saved predictions. Repeat for other runs you want to compare. This reads existing evidence only; opening the queue, importing, reviewing, training and downloading never dispatch another provider request. Local mode uses the local administrator; in shared mode these operations require administrator access.
+
+The review queue shows the original proposed type, source file and page, packet/revision, text, provider, requested model and reported model when recorded. New captures bind the provider response to the page **before** a trained classifier or recognition override can change the displayed type. An older completed live snapshot can supply an unattributed proposal when no overlay obscured it. If an overlay was used and its original provider prediction cannot be recovered, that page is skipped. Simulation rules, demo labels and later packet-review edits do not supply teacher predictions.
+
+Disagreements come first. Independently recorded teachers are compared only across different packet runs with matching source bytes, page number, current and previous page text, released taxonomy, instructions and test/source status. A second run of the same teacher, a matching file name or similar text is insufficient. Two different providers, or distinct **reported** models from the same provider, can support a comparison. Legacy evidence lacking the comparison key stays unpaired. Filter by comparison or review status, sample an agreement, or inspect any row's text and all proposals.
+
+Stage **Accept** with an allowed proposed type, **Correct** with another type from the original taxonomy, or **Reject** without a label. `unknown` is reviewable but cannot become the training target. Save up to 100 decisions together. The server checks the evidence membership and review version of every row in one transaction; on conflict refresh before submitting again. Adding new evidence to a reviewed group makes it pending until reviewed again. Edits replace that group's current decision; repeated import does not add votes or examples.
+
+Only accepted or corrected decisions enter the selected dataset's next fit or export. They stay separate from immutable labeled imports, including when the reviewer corrects the teacher. Saving a review does not train, approve or publish a model. Model source dependencies remain attached to all contributing packets even if the label is subsequently changed or rejected. An archived packet is excluded from future candidate reads, fits and downloads; a physical purge removes packet-bound observations and any dependent review, subject to the existing retention checks.
+
+### Portable reviewed-label export
+
+**Download JSON with training text** saves a UTF-8 `application/json` attachment locally. It contains source text and reviewer provenance. There is no external trainer URL, upload, or automatic model import. Example reader for a local trainer:
+
+```python
+import json
+from pathlib import Path
+
+data = json.loads(Path("paprika-default-reviewed.json").read_text(encoding="utf-8"))
+assert data["format"] == "paprika.reviewed-page-labels.v1"
+train = [(r["example"]["text"], r["example"]["label"])
+         for r in data["examples"] if r["split"] == "train"]
+held_out = [r for r in data["examples"] if r["split"] == "held-out"]
+```
+
+- `dataset` contains the selected ID and current name. `examples[]` contains manual labeled members and reviewed teachers. `example` has `id`, `text`, `label`, `synthetic`, `provenance` and optional source/approval fields. `origin` is `labeled-example` or `reviewed-teacher`. For a teacher, `teacherReview` preserves the original proposals (`predictions[]`), source hashes, identifiers, attribution, reviewer, reviewed label, decision, version and time. `example.label` is the reviewer's target. A missing reported `model` stays null even when `requestedModel` is known. A teacher-derived example cannot be re-imported under its `teacher:` ID as independent ground truth.
+- `groupId` and `split` are the partition the local fit uses. With teacher inputs, whole related source groups (including all contributing packets, file hashes and detected near-copies) stay together. Teacher-linked groups are never independent evaluation data, even if an independently supplied label is preferred for an overlapping page. Only `train` is fit data; only `held-out` is an independent evaluation representative. `held-out-related` is withheld, without another vote. `duplicate`, `superseded` and `conflict` rows are available for provenance, never for fitting; resolve conflicts before training. Do not pool splits across separate exports or assume differently worded sources are independent without checking their origin.
+- `fieldFeedback[]` is **separate evidence**, never a page-type target. It includes explicit field corrections tied to grounded suggestions on reviewed candidate page versions. Each record identifies the packet, document, synthetic status, extraction definition/version/hash, field and kind. `suggestion` retains provider/model attribution, answer key, original value and quote, and verbatim source evidence (page ID, UTF-16 offset and length, text and full-page text hash). `review` retains the actor, timestamp, revision, prior/result run IDs, category, submitted value and effective `before`/`after` values and spans. Only the latest explicit wrong-selection or transcription can carry a normalized `extractionTarget`. A business omission, an uncategorized edit or a superseded edit has **no target property**. Ungrounded, unreviewed or unverifiable suggestions are not extraction targets. Paprika does not fit a field-value model from this file.
+
+The format can represent an empty dataset or a dataset too small to evaluate. Exporting is not an accuracy claim.
+
 Example imports accept `{ examples: [{ id, text, label, synthetic, provenance, packetId?, revision? }] }`. Synthetic defaults true. Only mark examples real when they are authorized independently labeled paperwork. Declared provenance is not independent proof of dataset suitability. Dataset coverage, drift and business acceptance remain responsibilities of the workflow owner.
 
 Training accepts `{ name, threshold }`. Each normalized identical-text group occurs on only one side of a deterministic per-label 80/20 split. Conflicting labels for identical text in this dataset are rejected. Labels with fewer than five distinct texts have no test allocation. Reported accuracy/error bounds cover only held-out predictions at the routing threshold. Small/no qualifying held-out sets explicitly report `not evaluated`. The model is trained on the training split only; it is not silently refit on held-out data after evaluation. A trained model does not update accepted packets.

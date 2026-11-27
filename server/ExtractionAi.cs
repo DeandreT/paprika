@@ -119,7 +119,7 @@ public sealed class ExtractionAi(Settings settings, Store store, IHttpClientFact
             }
         );
 
-    private static ExtractionAiAnswer? Cached(
+    internal static ExtractionAiAnswer? Cached(
         SqliteConnection c,
         SqliteTransaction tx,
         string packetId,

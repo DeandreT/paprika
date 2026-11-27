@@ -24,6 +24,10 @@ Training administration requires administrator access in shared mode. Use `GET /
 | Import immutable members | `POST /api/training/datasets/{datasetId}/examples` | `{"examples":[{"id":"sample-1","text":"Synthetic invoice payment due","label":"invoice","synthetic":true,"provenance":"Handwritten test fixture"}]}` |
 | Train and evaluate on these members | `POST /api/training/datasets/{datasetId}/models` | `{"name":"Invoice desk model","threshold":0.95}` |
 | Rename a named dataset | `PUT /api/training/datasets/{datasetId}` | `{"expectedName":"Synthetic invoices","name":"Invoice desk examples"}` |
+| Import original saved provider decisions as candidates | `POST /api/training/datasets/{datasetId}/candidates/import` | `{"packetIds":["<packet-id>"]}` |
+| Inspect candidate groups, text, teacher evidence and latest review | `GET /api/training/datasets/{datasetId}/candidates` | |
+| Save a batch of candidate decisions | `POST /api/training/datasets/{datasetId}/candidates/review` | `{"decisions":[{"id":"<candidate-id>","version":"<from GET>","decision":"accepted","label":"invoice"}]}` |
+| Download reviewed examples, including training text | `GET /api/training/datasets/{datasetId}/export` | JSON attachment, [format and split rules](quality-platform.md#portable-reviewed-label-export) |
 | List retained models across datasets | `GET /api/training/models` | |
 
 The dataset ID belongs in the URL. A `datasetId` query parameter, a conflicting ID in an import/train request, or an unknown target fails the request. Omit the dataset path **only** for the original `GET/POST /api/training/examples` and `POST /api/training/models` compatibility operations: these always target the collection with ID `default` (display name **Legacy**). An import into another dataset never becomes a legacy example.
