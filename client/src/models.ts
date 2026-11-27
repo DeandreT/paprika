@@ -51,6 +51,7 @@ export interface TypeConfig { keywords: string[]; instructions: string; split: S
 export interface WorkflowCapabilities {
   quality?: Record<string, unknown> | null;
   training?: Record<string, unknown> | null;
+  reviewCollection?: Record<string, unknown> | null;
   reference?: Record<string, unknown> | null;
   operations?: Record<string, unknown> | null;
   extraction?: Record<string, unknown> | null;

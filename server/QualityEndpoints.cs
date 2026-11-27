@@ -1,3 +1,6 @@
+using System.Text.Json;
+using System.Text.Json.Serialization;
+
 namespace paprika;
 
 public static class QualityEndpoints
@@ -124,15 +127,88 @@ public static class QualityEndpoints
             .Produces<ApiError>(409)
             .WithOperationsScopedAccess();
         var trainingGroup = endpoints.MapGroup("/api/training").WithTags("Training");
+        // The URL is authoritative. Do not silently ignore an explicit selector and
+        // accidentally read/write Legacy (or a different named dataset).
+        trainingGroup.AddEndpointFilter(
+            (context, next) =>
+            {
+                var request = context.HttpContext.Request;
+                var scope = context
+                    .Arguments.OfType<TrainingDatasetScopedRequest>()
+                    .FirstOrDefault();
+                var target =
+                    request.RouteValues["datasetId"] as string ?? TrainingStore.DefaultDatasetId;
+                if (
+                    request.Query.ContainsKey("datasetId")
+                    || scope?.DatasetId is { } id && id != target
+                )
+                    return ValueTask.FromResult<object?>(
+                        Results.BadRequest(new ApiError("Select the training dataset in the URL."))
+                    );
+                return next(context);
+            }
+        );
+        var datasets = trainingGroup.MapGroup("/datasets");
+        datasets
+            .MapGet("", (TrainingStore store) => store.Datasets())
+            .WithName("ListTrainingDatasets")
+            .WithSummary("List classifier dataset IDs and current names")
+            .Produces<TrainingDataset[]>();
+        datasets
+            .MapPost("", (TrainingDatasetRequest request, TrainingStore store) =>
+                PlatformReply.Run(() => store.CreateDataset(request))
+            )
+            .WithName("CreateTrainingDataset")
+            .WithSummary("Create a named classifier dataset");
+        datasets
+            .MapPut(
+                "/{datasetId}",
+                (string datasetId, TrainingDatasetRenameRequest request, TrainingStore store) =>
+                    PlatformReply.Run(() => store.RenameDataset(datasetId, request))
+            )
+            .WithName("RenameTrainingDataset")
+            .WithSummary("Rename a classifier dataset without changing its ID or retained models");
+        datasets
+            .MapGet("/{datasetId}/examples", (string datasetId, TrainingStore store) =>
+                PlatformReply.Run(() => store.Examples(datasetId))
+            )
+            .WithName("ListDatasetTrainingExamples")
+            .WithSummary("List immutable examples belonging to this classifier dataset");
+        datasets
+            .MapGet("/{datasetId}/examples/summary", (string datasetId, TrainingStore store) =>
+                PlatformReply.Run(() => store.ExampleSummaries(datasetId))
+            )
+            .WithName("ListDatasetTrainingExampleSummaries")
+            .WithSummary("List example IDs, labels and synthetic flags without document text");
+        datasets
+            .MapPost(
+                "/{datasetId}/examples",
+                (string datasetId, TrainingImportRequest request, TrainingStore store) =>
+                    PlatformReply.Run(() =>
+                        new TrainingImportResponse(store.Import(request.Examples, datasetId))
+                    )
+            )
+            .WithName("ImportDatasetTrainingExamples")
+            .WithSummary("Import immutable examples into this classifier dataset");
+        datasets
+            .MapPost(
+                "/{datasetId}/models",
+                (string datasetId, TrainRequest request, TrainingStore store) =>
+                    PlatformReply.Run(() => store.Train(request, datasetId))
+            )
+            .WithName("TrainDatasetTextModel")
+            .WithSummary("Train and evaluate a local classifier on this dataset alone");
         trainingGroup
             .MapGet("/examples", (TrainingStore store) => store.Examples())
             .WithName("ListTrainingExamples")
+            .WithSummary("List examples in the legacy classifier dataset")
             .Produces<TrainingExample[]>();
         trainingGroup
             .MapPost("/examples", (TrainingImportRequest request, TrainingStore store) =>
                 Run(() => Results.Ok(new TrainingImportResponse(store.Import(request.Examples))))
             )
             .WithName("ImportTrainingExamples")
+            .WithSummary("Import immutable examples into the legacy classifier dataset")
             .Produces<TrainingImportResponse>()
             .Produces<ApiError>(400)
             .Produces<ApiError>(409);
@@ -145,6 +221,7 @@ public static class QualityEndpoints
                 Run(() => Results.Ok(store.Train(request)))
             )
             .WithName("TrainTextModel")
+            .WithSummary("Train a local classifier on the legacy dataset alone")
             .Produces<TrainingModelResponse>()
             .Produces<ApiError>(400);
         trainingGroup
@@ -188,3 +265,18 @@ public static class QualityEndpoints
 }
 
 public sealed record TrainingImportResponse(int Imported);
+
+// Optional assertion for clients carrying the dataset ID alongside a request.
+// Omission is valid; an explicit null/empty value is not a default selection.
+public abstract record TrainingDatasetScopedRequest
+{
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? DatasetId
+    {
+        get;
+        init =>
+            field = !string.IsNullOrWhiteSpace(value)
+                ? value
+                : throw new JsonException("An explicit dataset ID cannot be empty.");
+    }
+}

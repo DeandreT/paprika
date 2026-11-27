@@ -1,6 +1,7 @@
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using System.Text.RegularExpressions;
 
 namespace paprika;
@@ -11,6 +12,14 @@ public sealed record TrainingModelRef(
     string? Payload = null,
     bool Approved = false
 );
+
+public sealed record TrainingDataset(string Id, string Name);
+
+public sealed record TrainingDatasetRequest(string Name);
+
+public sealed record TrainingDatasetRenameRequest(string Name, string ExpectedName);
+
+public sealed record TrainingExampleSummary(string Id, string Label, bool Synthetic);
 
 public sealed record TrainingExample(
     string Id,
@@ -44,12 +53,19 @@ public sealed record TrainingArtifact(
     bool Synthetic,
     int TrainingExamples,
     TrainingEvaluation Evaluation,
-    string DatasetHash
+    string DatasetHash,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        TrainingDataset? Dataset = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        string? DatasetSnapshotHash = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        int? DatasetExampleCount = null
 );
 
 public sealed record TrainingPrediction(string Label, double Score);
 
-public sealed record TrainRequest(string Name, double Threshold = .95);
+public sealed record TrainRequest(string Name, double Threshold = .95)
+    : TrainingDatasetScopedRequest;
 
 public sealed record TrainingModelResponse(
     string Id,
@@ -63,7 +79,8 @@ public sealed record TrainingModelResponse(
 
 public sealed record TrainingApprovalRequest(string Hash);
 
-public sealed record TrainingImportRequest(TrainingExample[] Examples);
+public sealed record TrainingImportRequest(TrainingExample[] Examples)
+    : TrainingDatasetScopedRequest;
 
 public static partial class TrainingClassifier
 {

@@ -12,3 +12,20 @@ For packet API writes, send `X-paprika: 1`. This is a request marker, not authen
 4. After approval and any configured release checks, `GET /api/packets/{id}/export` for a ZIP containing document PDFs and the JSON manifest, or `GET /api/packets/{id}/documents/{documentId}/download` for one PDF. When the workflow configures extraction, read [`fields.json`](approved-fields.md) for the final approved field values.
 
 The packet API uses the same operations as [guided classification](classification-guide.md).
+
+## Local page-type classifier datasets
+
+Training administration requires administrator access in shared mode. Use `GET /api/training/datasets` to list `{id, name}` pairs. Create a collection with `POST /api/training/datasets` and `{"name":"Synthetic invoices"}`. Use its returned **ID**, not the display name, in subsequent URLs.
+
+| Operation | Route | Request |
+| --- | --- | --- |
+| List member IDs, labels and synthetic flags only | `GET /api/training/datasets/{datasetId}/examples/summary` | |
+| List members, including labeled text | `GET /api/training/datasets/{datasetId}/examples` | |
+| Import immutable members | `POST /api/training/datasets/{datasetId}/examples` | `{"examples":[{"id":"sample-1","text":"Synthetic invoice payment due","label":"invoice","synthetic":true,"provenance":"Handwritten test fixture"}]}` |
+| Train and evaluate on these members | `POST /api/training/datasets/{datasetId}/models` | `{"name":"Invoice desk model","threshold":0.95}` |
+| Rename a named dataset | `PUT /api/training/datasets/{datasetId}` | `{"expectedName":"Synthetic invoices","name":"Invoice desk examples"}` |
+| List retained models across datasets | `GET /api/training/models` | |
+
+The dataset ID belongs in the URL. A `datasetId` query parameter, a conflicting ID in an import/train request, or an unknown target fails the request. Omit the dataset path **only** for the original `GET/POST /api/training/examples` and `POST /api/training/models` compatibility operations: these always target the collection with ID `default` (display name **Legacy**). An import into another dataset never becomes a legacy example.
+
+Model responses include the dataset at training time in `artifact.dataset`; a pre-dataset artifact lacks that property and belongs to Legacy. For workflow review collection, set `workflow.capabilities.reviewCollection` on a draft to `{"datasetId":"<target ID>"}`. See [Quality and local training](quality-platform.md#choose-a-training-dataset) for review defaults, provenance and publication.

@@ -1,3 +1,4 @@
+using System.Security.Cryptography;
 using System.Text.Json;
 using Microsoft.Data.Sqlite;
 
@@ -5,23 +6,190 @@ namespace paprika;
 
 public sealed class TrainingStore
 {
+    public const string DefaultDatasetId = "default";
+    private const string DefaultDatasetName = "Legacy";
     private readonly Store store;
 
     public TrainingStore(Store store)
     {
         this.store = store;
         using var c = store.Open();
+        using var tx = c.BeginTransaction(deferred: false);
         using var q = c.CreateCommand();
-        q.CommandText =
-            "CREATE TABLE IF NOT EXISTS training_examples(id TEXT PRIMARY KEY,json TEXT NOT NULL); CREATE TABLE IF NOT EXISTS training_models(id TEXT PRIMARY KEY,json TEXT NOT NULL); CREATE TABLE IF NOT EXISTS training_predictions(packet_id TEXT NOT NULL,page_id TEXT NOT NULL,model_hash TEXT NOT NULL,json TEXT NOT NULL,PRIMARY KEY(packet_id,page_id,model_hash));";
+        q.Transaction = tx;
+        q.CommandText = """
+            SELECT count(*) > 0 AND count(*) FILTER (WHERE name='dataset_id') = 0
+            FROM pragma_table_info('training_examples')
+            """;
+        bool migrate = Convert.ToBoolean(q.ExecuteScalar());
+        if (migrate)
+        {
+            q.CommandText = "ALTER TABLE training_examples RENAME TO training_examples_legacy";
+            q.ExecuteNonQuery();
+        }
+        q.CommandText = """
+            CREATE TABLE IF NOT EXISTS training_datasets(
+                id TEXT PRIMARY KEY NOT NULL, name TEXT NOT NULL, name_key TEXT NOT NULL UNIQUE
+            );
+            INSERT INTO training_datasets(id,name,name_key) VALUES($default,$name,$nameKey)
+                ON CONFLICT(id) DO NOTHING;
+            CREATE TABLE IF NOT EXISTS training_examples(
+                dataset_id TEXT NOT NULL REFERENCES training_datasets(id),
+                id TEXT NOT NULL, json TEXT NOT NULL, PRIMARY KEY(dataset_id,id)
+            );
+            CREATE TABLE IF NOT EXISTS training_models(id TEXT PRIMARY KEY,json TEXT NOT NULL);
+            CREATE TABLE IF NOT EXISTS training_predictions(
+                packet_id TEXT NOT NULL,page_id TEXT NOT NULL,model_hash TEXT NOT NULL,
+                json TEXT NOT NULL,PRIMARY KEY(packet_id,page_id,model_hash)
+            );
+            """;
+        q.Parameters.AddWithValue("$default", DefaultDatasetId);
+        q.Parameters.AddWithValue("$name", DefaultDatasetName);
+        q.Parameters.AddWithValue("$nameKey", DefaultDatasetName.ToUpperInvariant());
         q.ExecuteNonQuery();
+        if (migrate)
+        {
+            q.CommandText = """
+                INSERT INTO training_examples(dataset_id,id,json)
+                    SELECT $default,id,json FROM training_examples_legacy;
+                DROP TABLE training_examples_legacy;
+                """;
+            q.ExecuteNonQuery();
+        }
+        tx.Commit();
     }
 
-    public TrainingExample[] Examples()
+    public TrainingDataset[] Datasets()
     {
         using var c = store.Open();
         using var q = c.CreateCommand();
-        q.CommandText = "SELECT json FROM training_examples ORDER BY id";
+        q.CommandText = "SELECT id,name FROM training_datasets ORDER BY id <> $default,name_key,id";
+        q.Parameters.AddWithValue("$default", DefaultDatasetId);
+        using var r = q.ExecuteReader();
+        var datasets = new List<TrainingDataset>();
+        while (r.Read())
+            datasets.Add(new(r.GetString(0), r.GetString(1)));
+        return datasets.ToArray();
+    }
+
+    public TrainingDataset CreateDataset(TrainingDatasetRequest request) =>
+        SaveDatasetName(Guid.NewGuid().ToString("N"), request.Name, expectedName: null);
+
+    public TrainingDataset RenameDataset(string datasetId, TrainingDatasetRenameRequest request)
+    {
+        if (string.IsNullOrWhiteSpace(request.ExpectedName))
+            throw new WorkflowException(400, "Supply the current dataset name when renaming it.");
+        return SaveDatasetName(datasetId, request.Name, request.ExpectedName);
+    }
+
+    private TrainingDataset SaveDatasetName(
+        string datasetId,
+        string proposedName,
+        string? expectedName
+    )
+    {
+        string? name = proposedName?.Trim();
+        if (string.IsNullOrEmpty(name) || name.Length > 120 || name.Any(char.IsControl))
+            throw new WorkflowException(
+                400,
+                "Dataset name must contain 1–120 printable characters."
+            );
+
+        using var c = store.Open();
+        using var tx = c.BeginTransaction(deferred: false);
+        if (expectedName is not null)
+        {
+            var current = RequireDataset(c, tx, datasetId);
+            if (datasetId == DefaultDatasetId)
+                throw new WorkflowException(409, "The Legacy dataset cannot be renamed.");
+            if (current.Name == name)
+                return current;
+            if (current.Name != expectedName)
+                throw new WorkflowException(
+                    409,
+                    "The dataset name changed. Refresh before renaming it."
+                );
+        }
+        using var q = c.CreateCommand();
+        q.Transaction = tx;
+        q.CommandText = expectedName is null
+            ? "INSERT INTO training_datasets(id,name,name_key) VALUES($id,$name,$nameKey)"
+            : "UPDATE training_datasets SET name=$name,name_key=$nameKey WHERE id=$id";
+        q.Parameters.AddWithValue("$id", datasetId);
+        q.Parameters.AddWithValue("$name", name);
+        q.Parameters.AddWithValue("$nameKey", name.ToUpperInvariant());
+        try
+        {
+            q.ExecuteNonQuery();
+        }
+        catch (SqliteException ex) when (ex.SqliteExtendedErrorCode == 2067) // SQLITE_CONSTRAINT_UNIQUE
+        {
+            throw new WorkflowException(409, "A training dataset already uses that name.");
+        }
+        tx.Commit();
+        return new(datasetId, name);
+    }
+
+    public static TrainingDataset RequireDataset(
+        SqliteConnection c,
+        SqliteTransaction tx,
+        string datasetId
+    )
+    {
+        if (
+            string.IsNullOrWhiteSpace(datasetId)
+            || datasetId.Length > 80
+            || !datasetId.All(ch => char.IsAsciiLetterOrDigit(ch) || ch is '-' or '_')
+        )
+            throw new WorkflowException(400, "A valid training dataset ID is required.");
+        using var q = c.CreateCommand();
+        q.Transaction = tx;
+        q.CommandText = "SELECT name FROM training_datasets WHERE id=$id";
+        q.Parameters.AddWithValue("$id", datasetId);
+        return q.ExecuteScalar() is string name
+            ? new(datasetId, name)
+            : throw new WorkflowException(404, "Training dataset not found.");
+    }
+
+    public TrainingExample[] Examples(string datasetId = DefaultDatasetId)
+    {
+        using var c = store.Open();
+        using var tx = c.BeginTransaction(deferred: true);
+        RequireDataset(c, tx, datasetId);
+        var examples = ReadExamples(c, tx, datasetId);
+        tx.Commit();
+        return examples;
+    }
+
+    public TrainingExampleSummary[] ExampleSummaries(string datasetId)
+    {
+        using var c = store.Open();
+        using var tx = c.BeginTransaction(deferred: true);
+        RequireDataset(c, tx, datasetId);
+        using var q = c.CreateCommand();
+        q.Transaction = tx;
+        q.CommandText = """
+            SELECT id,json_extract(json,'$.label'),coalesce(json_extract(json,'$.synthetic'),1)
+            FROM training_examples WHERE dataset_id=$dataset ORDER BY id
+            """;
+        q.Parameters.AddWithValue("$dataset", datasetId);
+        using var r = q.ExecuteReader();
+        var rows = new List<TrainingExampleSummary>();
+        while (r.Read())
+            rows.Add(new(r.GetString(0), r.GetString(1), r.GetBoolean(2)));
+        return rows.ToArray();
+    }
+
+    private static TrainingExample[] ReadExamples(
+        SqliteConnection c,
+        SqliteTransaction tx,
+        string datasetId
+    )
+    {
+        using var q = c.CreateCommand();
+        q.Transaction = tx;
+        q.CommandText = "SELECT json FROM training_examples WHERE dataset_id=$dataset ORDER BY id";
+        q.Parameters.AddWithValue("$dataset", datasetId);
         using var r = q.ExecuteReader();
         var rows = new List<TrainingExample>();
         while (r.Read())
@@ -29,7 +197,7 @@ public sealed class TrainingStore
         return rows.ToArray();
     }
 
-    public int Import(TrainingExample[] examples)
+    public int Import(TrainingExample[] examples, string datasetId = DefaultDatasetId)
     {
         if (examples is null || examples.Length is < 1 or > 10000)
             throw new WorkflowException(400, "Import 1–10000 labeled examples.");
@@ -52,38 +220,67 @@ public sealed class TrainingStore
                 );
         using var c = store.Open();
         using var tx = c.BeginTransaction();
+        RequireDataset(c, tx, datasetId);
         foreach (var e in examples)
-            Insert(c, tx, e);
+            Insert(c, tx, e, datasetId);
         tx.Commit();
         return examples.Length;
     }
 
-    internal static void Insert(SqliteConnection c, SqliteTransaction tx, TrainingExample example)
+    // Caller resolves the dataset once with RequireDataset in the same transaction.
+    internal static void Insert(
+        SqliteConnection c,
+        SqliteTransaction tx,
+        TrainingExample example,
+        string datasetId
+    )
     {
         using var q = c.CreateCommand();
         q.Transaction = tx;
-        q.CommandText = "SELECT json FROM training_examples WHERE id=$id";
+        q.CommandText = "SELECT json FROM training_examples WHERE dataset_id=$dataset AND id=$id";
+        q.Parameters.AddWithValue("$dataset", datasetId);
         q.Parameters.AddWithValue("$id", example.Id);
         string json = JsonSerializer.Serialize(example, Contract.Json);
         if (q.ExecuteScalar() is string existing)
         {
-            if (existing != json)
+            // Earlier stored rows may omit optional provenance fields that now
+            // serialize as null. An equivalent replay keeps the original bytes.
+            if (
+                existing != json
+                && JsonSerializer.Deserialize<TrainingExample>(existing, Contract.Json) != example
+            )
                 throw new WorkflowException(
                     409,
                     "An immutable training example already uses that ID."
                 );
             return;
         }
-        q.CommandText = "INSERT INTO training_examples(id,json) VALUES($id,$json)";
+        q.CommandText =
+            "INSERT INTO training_examples(dataset_id,id,json) VALUES($dataset,$id,$json)";
         q.Parameters.AddWithValue("$json", json);
         q.ExecuteNonQuery();
     }
 
-    public TrainingModelResponse Train(TrainRequest request)
+    public TrainingModelResponse Train(TrainRequest request, string datasetId = DefaultDatasetId)
     {
+        if (request.DatasetId is { } id && id != datasetId)
+            throw new WorkflowException(
+                400,
+                "The model request does not match the selected dataset."
+            );
         if (string.IsNullOrWhiteSpace(request.Name) || request.Name.Length > 120)
             throw new WorkflowException(400, "Model name must contain 1–120 characters.");
-        var artifact = TrainingClassifier.Fit(Examples(), request.Threshold);
+        // The retention check must see the model before any contributing packet can be purged.
+        using var c = store.Open();
+        using var tx = c.BeginTransaction(deferred: false);
+        var dataset = RequireDataset(c, tx, datasetId);
+        var examples = ReadExamples(c, tx, datasetId);
+        var artifact = TrainingClassifier.Fit(examples, request.Threshold) with
+        {
+            Dataset = dataset,
+            DatasetSnapshotHash = SnapshotHash(examples),
+            DatasetExampleCount = examples.Length,
+        };
         string payload = JsonSerializer.Serialize(artifact, Contract.Json);
         var model = new TrainingModelResponse(
             Guid.NewGuid().ToString("N"),
@@ -94,13 +291,24 @@ public sealed class TrainingStore
             DateTimeOffset.UtcNow,
             artifact
         );
-        using var c = store.Open();
         using var q = c.CreateCommand();
+        q.Transaction = tx;
         q.CommandText = "INSERT INTO training_models(id,json) VALUES($id,$json)";
         q.Parameters.AddWithValue("$id", model.Id);
         q.Parameters.AddWithValue("$json", JsonSerializer.Serialize(model, Contract.Json));
         q.ExecuteNonQuery();
+        tx.Commit();
         return model;
+    }
+
+    // SHA-256 of the complete JSON array in persisted ID order, before deduplication or splitting.
+    private static string SnapshotHash(TrainingExample[] examples)
+    {
+        using var hash = SHA256.Create();
+        using var stream = new CryptoStream(Stream.Null, hash, CryptoStreamMode.Write);
+        JsonSerializer.Serialize(stream, examples, Contract.Json);
+        stream.FlushFinalBlock();
+        return Convert.ToHexStringLower(hash.Hash!);
     }
 
     public TrainingModelResponse[] Models()
@@ -269,6 +477,16 @@ public sealed class TrainingStore
     {
         if (after.Status != "approved")
             return;
+        var capabilities = after.EffectiveWorkflow.Capabilities;
+        var collection = capabilities?.ReviewCollection;
+        if (
+            collection is null
+            && capabilities?.Training is { } training
+            && Resolve(training).Dataset is { Id: not DefaultDatasetId }
+        )
+            return;
+        string datasetId = collection is null ? DefaultDatasetId : collection.DatasetId;
+        RequireDataset(c, tx, datasetId);
         foreach (var doc in after.Documents.Where(d => d.Type != "unknown"))
         foreach (var id in doc.PageIds)
         {
@@ -295,7 +513,8 @@ public sealed class TrainingStore
                         )
                         ?.At
                         ?? after.CreatedAt
-                )
+                ),
+                datasetId
             );
         }
     }

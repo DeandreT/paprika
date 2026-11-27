@@ -4,7 +4,7 @@
 
 ## Immutable configuration
 
-`WorkflowConfig.Capabilities` and `WorkflowSnapshot.Capabilities` are optional `WorkflowCapabilities` records with null omitted during serialization. Its nullable properties are Quality, Training, Reference, Operations, Extraction, Recognition, Preprocessing, Output, Flow and Case. Policies belong to the corresponding module. Missing capabilities retain previous behavior and hash serialization.
+`WorkflowConfig.Capabilities` and `WorkflowSnapshot.Capabilities` are optional `WorkflowCapabilities` records with null omitted during serialization. Its nullable properties are Quality, Training, Reference, Operations, Extraction, Recognition, Preprocessing, Output, Flow, Case and ReviewCollection. ReviewCollection identifies the dataset for human-approved page labels, independently of the Training artifact. Policies belong to the corresponding module. Missing capabilities on existing workflows retain previous behavior and hash serialization.
 
 Validation rejects unknown/unsupported settings before catalog save/publication and intake. Exact embedded definitions, version/hash references and self-contained trained parameters are pinned before the accepted snapshot hash is calculated. Helpers called inside registry resolution must use the existing SQLite connection/transaction rather than opening another write transaction.
 

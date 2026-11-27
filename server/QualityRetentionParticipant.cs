@@ -9,6 +9,7 @@ public sealed class QualityRetentionParticipant : IOperationsRetentionParticipan
         [
             "quality_decisions",
             "quality_qa",
+            "training_datasets",
             "training_examples",
             "training_models",
             "training_predictions",
