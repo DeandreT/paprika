@@ -1078,6 +1078,7 @@ public static class ExtractionPlatform
                 packetId,
                 previousRunId = run.Id,
                 correction,
+                fieldKind = field.Kind,
                 normalizedValue = normalized,
                 before,
                 after,

@@ -101,6 +101,7 @@ public sealed class FieldCorrectionApiTests
                 row.GetProperty("correction")
             )
         );
+        Assert.Equal("number", row.GetProperty("fieldKind").GetString());
         Assert.Equal(effective.Value, row.GetProperty("normalizedValue").GetString());
         AssertValue(
             original,
