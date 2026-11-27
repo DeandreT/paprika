@@ -1,6 +1,6 @@
 import { expect, test } from 'bun:test';
-import { normalizedValue, pageHash, selectedSpan } from '../client/src/field-review';
-import type { Page } from '../client/src/models';
+import { normalizedValue, pageHash, reviewDocuments, selectedSpan, type ExtractionRun } from '../client/src/field-review';
+import type { Packet, Page } from '../client/src/models';
 
 test('a textarea selection points to the exact UTF-16 span in the unmodified page', async () => {
   // Textareas collapse CRLF to LF; both the earlier astral character and the
@@ -25,4 +25,34 @@ test('typed replacements preserve decimal digits and normalize dates and boolean
   expect(normalizedValue('2026-02-29', 'date')).toBeNull();
   expect(normalizedValue(' NO ', 'boolean')).toBe('false');
   expect(normalizedValue(' 00015 ', 'text')).toBe('00015');
+});
+
+test('a legacy clear stays uncategorized across approval and does not label a fresh extraction', () => {
+  const packet = { documents: [{ id: 'doc', type: 'invoice' }] } as Packet;
+  function run(id: string, revision: number, value: string | null, status: string): ExtractionRun {
+    return {
+      id, packetRevision: revision, packetId: 'packet',
+      definition: { id: 'fields', version: 1, fields: [{ name: 'note', kind: 'text', required: false }] },
+      results: [{ documentId: 'doc', tables: [], fields: [{ name: 'note', value, status, evidence: [] }] }],
+    };
+  }
+  const predicted = run('initial', 1, 'Internal use', 'extracted');
+  const cleared = run('manual', 2, null, 'corrected');
+  const carried = run('carry', 3, null, 'corrected');
+  const fresh = run('new', 4, 'Internal use', 'extracted');
+  const history = {
+    currentConfiguredRunId: fresh.id, runs: [predicted, cleared, carried, fresh],
+    corrections: [
+      { previousRunId: predicted.id, resultId: cleared.id, actor: 'reviewer', at: '',
+        correction: { documentId: 'doc', field: 'note', reason: 'Omit from delivery' } },
+      { previousRunId: cleared.id, resultId: carried.id, actor: 'reviewer', at: '' },
+      // After regrouping, the new run reused only a different document.
+      { previousRunId: carried.id, resultId: fresh.id, actor: 'system', at: '', documentIds: ['other'] },
+    ],
+  };
+  const approved = reviewDocuments(packet, carried, history, 'doc')[0].fields[0];
+  expect(approved.source?.value).toBe('Internal use');
+  expect(approved.final.value).toBeNull();
+  expect(approved.changes.map(c => [c.category, c.note])).toEqual([[null, 'Omit from delivery']]);
+  expect(reviewDocuments(packet, fresh, history, 'doc')[0].fields[0].changes).toEqual([]);
 });
