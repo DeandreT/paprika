@@ -22,6 +22,7 @@ import { QualityPanelComponent } from "./quality-panel";
 import { ReferencePanelComponent } from "./reference-panel";
 import { OperationsPanelComponent } from "./operations-panel";
 import { ExtractionPanelComponent } from "./extraction-panel";
+import { PacketFieldsComponent } from "./packet-fields";
 import { CasePanelComponent } from "./case-panel";
 import { FlowPanelComponent } from "./flow-panel";
 import { ThemeService } from "./theme";
@@ -48,6 +49,7 @@ export interface ShipmentCheck { documentId: string; revision: number; reference
     ReferencePanelComponent,
     OperationsPanelComponent,
     ExtractionPanelComponent,
+    PacketFieldsComponent,
     CasePanelComponent,
     FlowPanelComponent,
     ClassificationWizardComponent,
@@ -151,7 +153,10 @@ export class AppComponent {
   documents = signal<Document[]>([]);
   selectedId = signal("");
   dirty = signal(false);
-  busy = signal(false);
+  packetBusy = signal(false);
+  fieldEditing = signal(false);
+  busy = computed(() => this.packetBusy() || this.fieldEditing());
+  fieldReviewBlocked = computed(() => this.packetBusy() || this.dirty() || this.stale() || this.checkingShipment());
   error = signal("");
   notice = signal("");
   stale = signal(false);
@@ -235,7 +240,7 @@ export class AppComponent {
     void this.initialize();
     effect(() => { const key = this.referenceKey(); untracked(() => void this.loadReferences(key)); });
     const beforeUnload = (e: BeforeUnloadEvent) => {
-      if (this.dirty() || this.catalogDirty()) {
+      if (this.dirty() || this.fieldEditing() || this.catalogDirty()) {
         e.preventDefault();
       }
     };
@@ -325,6 +330,13 @@ export class AppComponent {
       identifierCandidates: (Array.isArray(p.identifierCandidates) ? p.identifierCandidates : []).map(candidate => ({ ...candidate, pageIds: Array.isArray(candidate.pageIds) ? candidate.pageIds : [] })),
     };
   }
+  fieldSaved(packet: Packet) {
+    const current = this.packet();
+    if (this.dirty() || !current || current.id !== packet.id || current.revision + 1 !== packet.revision) return;
+    this.accept(packet);
+    this.notice.set("Field correction saved. Review and approve this revision before delivery.");
+    if (this.historyOpen()) void this.loadHistory();
+  }
   previewCreated(packet: Packet) {
     this.accept(packet);
     this.managerOpen.set(false);
@@ -342,7 +354,7 @@ export class AppComponent {
     if (this.busy() || !this.mayDiscard()) return;
     const token = ++this.selectionToken;
     clearTimeout(this.timer);
-    this.busy.set(true);
+    this.packetBusy.set(true);
     this.error.set("");
     this.notice.set("");
     try {
@@ -353,12 +365,12 @@ export class AppComponent {
     } catch (e) {
       this.fail(e, "Could not load this packet. Try again.");
     } finally {
-      this.busy.set(false);
+      this.packetBusy.set(false);
     }
   }
   async demo() {
     if (!this.workflows.catalog().canUpload || this.busy() || !this.mayDiscard()) return;
-    this.busy.set(true);
+    this.packetBusy.set(true);
     this.error.set("");
     this.notice.set("");
     clearTimeout(this.timer);
@@ -378,7 +390,7 @@ export class AppComponent {
         "Could not create a sample packet. Check the backend and try again.",
       );
     } finally {
-      this.busy.set(false);
+      this.packetBusy.set(false);
     }
   }
   async upload(event: Event) {
@@ -422,7 +434,7 @@ export class AppComponent {
     submission.files.forEach((f) => data.append("files", f));
     data.append("workflowId", submission.workflow.id);
     data.append("workflowVersion", String(submission.workflow.version));
-    this.busy.set(true);
+    this.packetBusy.set(true);
     this.error.set("");
     this.notice.set("");
     clearTimeout(this.timer);
@@ -448,7 +460,7 @@ export class AppComponent {
           : "Upload failed. Check the service configuration and file sizes, then choose files again.",
       );
     } finally {
-      this.busy.set(false);
+      this.packetBusy.set(false);
       this.poll();
     }
   }
@@ -543,7 +555,7 @@ export class AppComponent {
       );
       return;
     }
-    this.busy.set(true);
+    this.packetBusy.set(true);
     this.error.set("");
     try {
       this.accept(
@@ -572,13 +584,13 @@ export class AppComponent {
       } else
         this.fail(e, "Could not save. Your edits are preserved. Try again.");
     } finally {
-      this.busy.set(false);
+      this.packetBusy.set(false);
     }
   }
   async retry() {
     const p = this.packet();
     if (!p || this.busy()) return;
-    this.busy.set(true);
+    this.packetBusy.set(true);
     this.error.set("");
     try {
       this.accept(
@@ -593,7 +605,7 @@ export class AppComponent {
     } catch (e) {
       this.fail(e, "Retry failed. Check backend configuration and try again.");
     } finally {
-      this.busy.set(false);
+      this.packetBusy.set(false);
     }
   }
   async lifecycle(action: "reprocess" | "cancel") {
@@ -607,7 +619,7 @@ export class AppComponent {
       return;
     }
     if (!this.mayDiscard()) return;
-    this.busy.set(true);
+    this.packetBusy.set(true);
     this.error.set("");
     clearTimeout(this.timer);
     try {
@@ -632,7 +644,7 @@ export class AppComponent {
         "The packet could not be updated. Refresh the packet and try again.",
       );
     } finally {
-      this.busy.set(false);
+      this.packetBusy.set(false);
       this.poll();
     }
   }

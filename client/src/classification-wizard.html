@@ -9,7 +9,7 @@
   @if (reviewing() && !choosingPacket()) {
     <div class="guided-context-actions">
       <button mat-button (click)="choosingPacket.set(true)" [disabled]="w.busy() || !!w.pendingUpload()">Open another packet</button>
-      <button mat-button class="guided-details-toggle" data-testid="guided-details-toggle" (click)="detailsOpen.set(!detailsOpen())" [attr.aria-expanded]="detailsOpen()" aria-controls="guided-labels">{{ detailsOpen() ? 'Hide details' : 'Details' }}</button>
+      <button mat-button class="guided-details-toggle" data-testid="guided-details-toggle" (click)="detailsOpen.set(!detailsOpen())" [disabled]="w.fieldEditing() && detailsOpen()" [attr.aria-expanded]="detailsOpen()" aria-controls="guided-labels">{{ detailsOpen() ? 'Hide details' : 'Details' }}</button>
     </div>
   }
   </div>
@@ -108,7 +108,11 @@
                 <details [open]="w.shipmentRequired() && !doc.businessReference.trim()"><summary>{{ w.shipmentRequired() ? 'Shipment IDs found on this document' : 'Suggested references' }}</summary>@for (candidate of w.identifierCandidates(); track $index) { <div class="reference-candidate"><strong>{{ candidate.value }}</strong><p class="small muted">{{ candidate.evidence }}</p><button mat-button (click)="w.useReference(candidate.value)" [disabled]="!w.editable()">{{ w.shipmentRequired() ? 'Use as Shipment ID' : 'Use reference' }}</button></div> }</details>
               }
               @if (doc.reviewReasons.length) { <details><summary>Review notes</summary><ul class="small">@for (reason of doc.reviewReasons; track $index) { <li>{{ reason }}</li> }</ul></details> }
-              <div class="catalog-actions"><button mat-stroked-button data-testid="guided-save" (click)="w.save(false)" [disabled]="!w.editable() || !w.dirty()">Save draft</button><span class="small muted">{{ w.dirty() ? 'Unsaved changes' : 'Saved' }}</span></div>
+              <div class="catalog-actions"><button mat-stroked-button data-testid="guided-save" (click)="w.save(false)" [disabled]="!w.editable() || !w.dirty()">Save draft</button><span class="small muted">{{ w.fieldEditing() ? 'Editing field' : w.dirty() ? 'Unsaved changes' : 'Saved' }}</span></div>
+              @if (packet.workflow?.capabilities?.extraction) {
+                @if (w.dirty()) { <p class="small muted">Save the document changes before editing extracted fields.</p> }
+                <app-packet-fields [packet]="packet" [documentId]="doc.id" [disabled]="w.fieldReviewBlocked()" (editingChanged)="w.fieldEditing.set($event)" (saved)="w.fieldSaved($event)" (reloadPacket)="w.open(packet.id)" />
+              }
               <button mat-button class="guided-reorganize" (click)="w.setClassificationAdvanced(true)" [disabled]="w.busy()">Split or reorganize pages</button>
               <details class="guided-packet-details"><summary>Packet details</summary><p data-testid="packet-name">{{ packet.name }}</p><p class="small muted">{{ packet.workflow?.name }} · {{ packet.pages.length }} pages · {{ packet.mode }}</p></details>
               @if (w.selected(); as page) { <details class="ocr"><summary>Extracted text</summary><pre>{{ page.text || 'No text extracted.' }}</pre></details> }

@@ -1,0 +1,120 @@
+<section class="field-review" aria-label="Extracted fields" data-testid="packet-fields">
+  <h3>Extracted fields</h3>
+  @if (loading()) { <p role="status">Loading extracted fields…</p> }
+  @if (error()) {
+    <p class="problem" role="alert">{{ error() }}</p>
+    @if (!history()) { <button mat-button type="button" (click)="load()">Retry loading fields</button> }
+  }
+  @if (history(); as ledger) {
+    @if (includeAdHoc() && ledger.runs.length) {
+      <label>Extraction run<select [ngModel]="selectedRunId()" (ngModelChange)="selectedRunId.set($event)" [disabled]="!!draft() || disabled()">
+        @for (item of ledger.runs; track item.id) {
+          <option [value]="item.id">{{ item.definition.id }} v{{ item.definition.version }} · Revision {{ item.packetRevision }} · {{ item.id.slice(0, 8) }}</option>
+        }
+      </select></label>
+      @if (!currentRun()) { <p class="small muted">Historical run · Read only</p> }
+    }
+    @for (doc of documents(); track doc.id) {
+      @if (!documentId()) {
+        <h4>{{ doc.index >= 0 ? 'Document ' + (doc.index + 1) : 'Document ' + doc.id }}@if (doc.type) { · {{ doc.type }} }</h4>
+      }
+      @for (field of doc.fields; track field.definition.name) {
+        <article class="field" data-testid="review-field" [attr.data-field]="field.definition.name" [attr.data-document]="doc.id">
+          <header><strong>{{ field.definition.name }}</strong><span class="field-kind">{{ field.definition.kind }}{{ field.definition.required ? ' · Required' : '' }}</span></header>
+          <dl>
+            <div><dt>Source prediction</dt><dd data-testid="field-source">{{ field.source ? field.source.value ?? field.source.status : 'Original prediction unavailable' }}</dd></div>
+            <div><dt>Final value</dt><dd data-testid="field-final">{{ field.final.value ?? (field.changes[0]?.category === 'omit' ? 'Omitted from delivery' : 'No value') }}</dd></div>
+          </dl>
+          @if (field.changes[0]; as change) {
+            <p class="feedback">{{ change.category ? labels[change.category] : 'Legacy correction (uncategorized)' }}</p>
+          }
+          <details class="evidence"><summary>Source evidence</summary>
+            @for (span of field.source?.evidence ?? []; track $index) {
+              <blockquote>{{ span.text }}<cite>{{ location(span) }}</cite></blockquote>
+            } @empty { <p>No source span available.</p> }
+            @if (field.changes.length) {
+              <strong>Final evidence</strong>
+              @for (span of field.final.evidence; track $index) {
+                <blockquote>{{ span.text }}<cite>{{ location(span) }}</cite></blockquote>
+              } @empty { <p>No final span recorded.</p> }
+            }
+          </details>
+          @if (field.changes.length) {
+            <details class="history" data-testid="field-history"><summary>Correction history ({{ field.changes.length }})</summary>
+              <ol>@for (change of field.changes; track change.resultId) {
+                <li>
+                  <strong>{{ change.category ? labels[change.category] : 'Legacy correction (uncategorized)' }}</strong>
+                  <p>{{ change.note }}</p>
+                  <p>{{ change.before?.value ?? 'No value' }} → {{ change.after?.value ?? 'No value' }}</p>
+                  <small>Revision {{ change.revision }} · {{ change.actor }} · {{ change.at | date:'short' }}</small>
+                </li>
+              }</ol>
+            </details>
+          }
+          @if (draft()?.documentId === doc.id && draft()?.field?.definition?.name === field.definition.name) {
+            <fieldset [disabled]="saving() || disabled()"><legend>Edit field</legend>
+              <label>Correction reason<select data-testid="field-category" [ngModel]="category()" (ngModelChange)="setCategory($event)" required>
+                <option value="">Choose a reason</option>
+                <option value="wrong-selection">Wrong text selected</option>
+                <option value="transcription">Text read incorrectly</option>
+                <option value="omit">Omit from delivery</option>
+              </select></label>
+              @switch (category()) {
+                @case ('wrong-selection') {
+                  <label>Source page<select data-testid="field-page" [ngModel]="pageId()" (ngModelChange)="selectPage($event)">
+                    @for (page of pages(); track page.id) { <option [value]="page.id">{{ page.sourceName }} · p. {{ page.pageNumber }}</option> }
+                  </select></label>
+                  @if (page(); as pg) {
+                    <label>Highlight the correct text on this page<textarea #source data-testid="field-page-text" rows="6" readonly [value]="pg.text"
+                      (select)="selectText(pg, source)" (keyup)="selectText(pg, source)" (pointerup)="selectText(pg, source)"></textarea></label>
+                    @if (!pg.text) { <p class="small muted">This page has no extracted text.</p> }
+                  }
+                  @if (span(); as selection) {
+                    <blockquote>{{ selection.text }}<cite>Offset {{ selection.offset }} · Length {{ selection.length }}</cite></blockquote>
+                  }
+                  <label>Value from selection<input data-testid="field-value" [value]="normalized() ?? ''" readonly /></label>
+                  @if (sameSelection()) { <p class="small problem">Choose a different source span.</p> }
+                  @else if (span() && !normalized()) { <p class="small problem">Select text that is a valid {{ field.definition.kind }}.</p> }
+                }
+                @case ('transcription') {
+                  <p class="small muted">Enter the correct value. The current source evidence stays attached.</p>
+                  @switch (field.definition.kind) {
+                    @case ('boolean') {
+                      <label>Corrected value<select data-testid="field-value" [ngModel]="value()" (ngModelChange)="value.set($event)" required>
+                        <option value="">Choose a value</option><option value="true">True</option><option value="false">False</option>
+                      </select></label>
+                    }
+                    @case ('date') { <label>Corrected date<input data-testid="field-value" type="date" [value]="value()" (input)="value.set($any($event.target).value)" required /></label> }
+                    @default {
+                      <label>Corrected {{ field.definition.kind === 'number' ? 'number' : 'value' }}<input data-testid="field-value" [attr.inputmode]="field.definition.kind === 'number' ? 'decimal' : 'text'"
+                        [ngModel]="value()" (ngModelChange)="value.set($event)" maxlength="10000" required /></label>
+                    }
+                  }
+                  @if (value() && !normalized()) { <p class="small problem">Enter a valid {{ field.definition.kind }}.</p> }
+                }
+                @case ('omit') {
+                  <p class="small">No value will be delivered. The source prediction and evidence stay in the record.</p>
+                  @if (field.definition.required) { <p class="small problem">This field is required. The packet cannot be approved while its value is omitted.</p> }
+                }
+              }
+              <label>Review note<textarea data-testid="field-note" rows="2" [ngModel]="note()" (ngModelChange)="note.set($event)" maxlength="1000" required></textarea></label>
+              @if (conflict()) {
+                <p class="small">Reload the packet before trying again. Reloading discards this field edit.</p>
+                <button mat-stroked-button type="button" (click)="refreshPacket()">Discard edit and reload packet</button>
+              }
+              <div class="actions">
+                <button mat-flat-button type="button" data-testid="field-save" (click)="save()" [disabled]="!ready()">{{ saving() ? 'Saving…' : 'Save correction' }}</button>
+                <button mat-button type="button" data-testid="field-cancel" (click)="cancel()">Cancel</button>
+              </div>
+            </fieldset>
+          } @else if (currentRun()) {
+            <button mat-button type="button" data-testid="field-edit" (click)="edit(doc.id, field)" [disabled]="disabled() || !!draft()">Edit field</button>
+          }
+        </article>
+      } @empty { <p class="small muted">No scalar fields in this result.</p> }
+      @if (includeAdHoc() && doc.tables.length) { <details><summary>Extracted tables</summary><pre>{{ doc.tables | json }}</pre></details> }
+    } @empty {
+      <p class="small muted">{{ includeAdHoc() ? 'No extraction results for this run.' : 'No configured extraction results for this document at this revision.' }}</p>
+    }
+  }
+</section>

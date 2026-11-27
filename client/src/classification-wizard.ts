@@ -3,6 +3,7 @@ import { FormsModule } from "@angular/forms";
 import { MatButtonModule } from "@angular/material/button";
 import { MatProgressBarModule } from "@angular/material/progress-bar";
 import { PagePreviewComponent } from "./pdf-preview";
+import { PacketFieldsComponent } from "./packet-fields";
 import type { AppComponent } from "./app";
 
 // A focused view of the existing workspace controller: uploads, revisions and approval
@@ -10,7 +11,7 @@ import type { AppComponent } from "./app";
 @Component({
   selector: "app-classification-wizard",
   standalone: true,
-  imports: [FormsModule, MatButtonModule, MatProgressBarModule, PagePreviewComponent],
+  imports: [FormsModule, MatButtonModule, MatProgressBarModule, PagePreviewComponent, PacketFieldsComponent],
   templateUrl: "./classification-wizard.html",
 })
 export class ClassificationWizardComponent {
