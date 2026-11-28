@@ -143,7 +143,7 @@ test('reviewers inspect independent comparisons, choose labels, and reconcile a 
   await match.getByLabel('Review decision').selectOption('corrected');
   await expect(match.getByLabel('Corrected label').locator('option[value="packing_list"]')).toHaveCount(0);
   await match.getByLabel('Corrected label').selectOption('bol');
-  await review.getByLabel('Comparison', { exact: true }).selectOption('all');
+  await review.getByRole('combobox', { name: 'Comparison', exact: true }).selectOption('all');
   await expect(unpaired.getByLabel('Review decision').locator('option[value="accepted"]')).toBeDisabled();
   await unpaired.getByLabel('Review decision').selectOption('rejected');
   await expect(review.getByText('3 staged', { exact: true })).toBeVisible();
