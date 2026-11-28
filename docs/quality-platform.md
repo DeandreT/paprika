@@ -43,7 +43,7 @@ New model artifacts record the dataset ID and name as they were at training time
 
 ### Collect human-approved page labels
 
-On a saved workflow draft, choose the **review collection** separately from the trained model. Set it to a dataset to send future approved examples there, even if the classifier was trained elsewhere. The workflow freezes the target ID at publication; renaming the target does not redirect any packets. An explicit empty or unknown target is rejected. Simulated test runs and demo packets keep their synthetic flag. Automatic approvals never provide training labels.
+On a saved workflow draft, choose the **review collection** separately from the trained model. Set it to a dataset to send future approved examples there, even if the classifier was trained elsewhere. The workflow freezes the target ID at publication; renaming the target does not redirect any packets. An explicit empty or unknown target is rejected. Approved examples from test runs and demo packets stay synthetic when reprocessed, even in live mode. Listing, exporting and training also check the packet ancestry of older captured approvals. If that ancestry is missing or cyclic, the example is treated as synthetic. Automatic approvals never provide training labels.
 
 Without an explicit review collection, existing workflows (no model, a historical model or a Legacy-trained model) continue capturing human approvals into Legacy. A workflow using a model from a **named** dataset collects **nothing** until a target is explicitly selected. Importing examples, choosing a dataset in the panel, training a model or collecting reviews does not retrain a model, publish a draft or change a packet's frozen classifier.
 

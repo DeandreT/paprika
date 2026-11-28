@@ -1,3 +1,4 @@
+using System.IO.Compression;
 using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
@@ -176,6 +177,108 @@ public sealed class ReviewedFieldEvidenceTests
         Assert.Equal(2, host.Provider.Calls);
     }
 
+    [Theory]
+    [InlineData(null, null, "missing")]
+    [InlineData("1,200.00", "Unprinted amount: 1,200.00", "invalid")]
+    public async Task ReviewerSpanCorrectsDeliveryWithoutGroundingTheProviderAnswer(
+        string? value,
+        string? quote,
+        string expectedStatus
+    )
+    {
+        await using var host = new Host();
+        host.Provider.Amount = new(value, quote);
+        using var client = host.CreateClient();
+        client.DefaultRequestHeaders.Add("X-paprika", "1");
+        var store = host.Services.GetRequiredService<Store>();
+        var packet = await ProcessInvoice(host, store);
+        var page = Assert.Single(packet.Pages);
+        var billed = Span(page, "1,300.00");
+        using var db = new SqliteConnection(store.ConnectionString);
+        db.Open();
+        void AssertReview(ExtractionRun result, string category, string corrected)
+        {
+            using var tx = db.BeginTransaction(deferred: true);
+            var history = ReviewedFieldEvidence.Read(
+                db,
+                tx,
+                packet.Id,
+                new Dictionary<string, string> { [page.Id] = billed.TextSha256 }
+            );
+            var item = Assert.Single(history, f => f.Review.ResultId == result.Id);
+            Assert.Equal(expectedStatus, item.Suggestion.Status);
+            Assert.Empty(item.Suggestion.Evidence);
+            Assert.Null(item.Suggestion.Value);
+            Assert.Null(item.Suggestion.Quote);
+            Assert.Equal(category, item.Review.Category);
+            Assert.Equal(corrected, item.Review.After.Value);
+            Assert.Equal(billed, Assert.Single(item.Review.After.Evidence));
+            var wire = JsonSerializer.SerializeToElement(item, Contract.Json);
+            Assert.False(wire.TryGetProperty("extractionTarget", out _));
+        }
+
+        var run = ExtractionPlatform.Current(store, packet)!;
+        run = await Correct(client, run, "amount", billed.Text, "wrong-selection", [billed]);
+        AssertReview(run, "wrong-selection", "1300.00");
+        run = await Correct(client, run, "amount", "1320.00", "transcription", []);
+        AssertReview(run, "transcription", "1320.00");
+
+        Assert.Single(packet.Documents).BusinessReference = "TEST-SHIPMENT";
+        using var approved = await client.PutAsJsonAsync(
+            $"/api/packets/{packet.Id}/review",
+            new ReviewRequest(run.PacketRevision, packet.Documents, true)
+        );
+        approved.EnsureSuccessStatusCode();
+        using var zip = new ZipArchive(
+            new MemoryStream(await client.GetByteArrayAsync($"/api/packets/{packet.Id}/export"))
+        );
+        using var fieldStream = zip.GetEntry("fields.json")!.Open();
+        using var fields = JsonDocument.Parse(fieldStream);
+        var amount = Assert.Single(
+            fields.RootElement.GetProperty("documents")[0].GetProperty("fields").EnumerateArray(),
+            f => f.GetProperty("name").GetString() == "amount"
+        );
+        Assert.Equal("corrected", amount.GetProperty("status").GetString());
+        Assert.Equal("1320.00", amount.GetProperty("value").GetString());
+    }
+
+    [Fact]
+    public async Task OnlyTheRecordedProviderSpanCanGroundAReviewedTarget()
+    {
+        await using var host = new Host();
+        using var client = host.CreateClient();
+        client.DefaultRequestHeaders.Add("X-paprika", "1");
+        var store = host.Services.GetRequiredService<Store>();
+        var packet = await ProcessInvoice(host, store);
+        var page = Assert.Single(packet.Pages);
+        var billed = Span(page, "1,300.00");
+        var original = ExtractionPlatform.Current(store, packet)!;
+        await Correct(client, original, "amount", billed.Text, "wrong-selection", [billed]);
+        using var db = new SqliteConnection(store.ConnectionString);
+        db.Open();
+        using var tx = db.BeginTransaction();
+        var reviewed = new Dictionary<string, string> { [page.Id] = billed.TextSha256 };
+        var eligible = Assert.Single(ReviewedFieldEvidence.Read(db, tx, packet.Id, reviewed));
+        Assert.Equal("1300.00", eligible.ExtractionTarget);
+        Assert.Equal(Span(page, "1,200.00"), Assert.Single(eligible.Suggestion.Evidence));
+
+        using var change = db.CreateCommand();
+        change.Transaction = tx;
+        change.CommandText = """
+            UPDATE extraction_objects SET json=json_set(json,'$.results[0].fields[0].evidence',json($spans))
+            WHERE kind='run' AND id=$id
+            """;
+        change.Parameters.AddWithValue("$id", original.Id);
+        var spans = change.Parameters.Add("$spans", SqliteType.Text);
+        // The reviewer's span still matches the page exactly. It isn't the provider's span.
+        spans.Value = JsonSerializer.Serialize(new[] { billed }, Contract.Json);
+        Assert.Equal(1, change.ExecuteNonQuery());
+        Assert.Empty(ReviewedFieldEvidence.Read(db, tx, packet.Id, reviewed));
+        spans.Value = "null";
+        Assert.Equal(1, change.ExecuteNonQuery());
+        Assert.Empty(ReviewedFieldEvidence.Read(db, tx, packet.Id, reviewed));
+    }
+
     [Fact]
     public async Task AReplacementTeacherAnswerCannotBeAttributedToAnEarlierReviewChain()
     {
@@ -338,6 +441,7 @@ public sealed class ReviewedFieldEvidenceTests
     private sealed class ProviderFixture : HttpMessageHandler
     {
         public int Calls { get; private set; }
+        public ExtractionAiValue Amount { get; set; } = new("1,200.00", "Estimate: 1,200.00");
 
         protected override Task<HttpResponseMessage> SendAsync(
             HttpRequestMessage request,
@@ -362,11 +466,12 @@ public sealed class ReviewedFieldEvidenceTests
             var values = JsonSerializer.Serialize(
                 new
                 {
-                    amount = new { value = "1,200.00", quote = "Estimate: 1,200.00" },
+                    amount = Amount,
                     reference,
                     legacy = reference,
                     unreviewed = reference,
-                }
+                },
+                Contract.Json
             );
             return Task.FromResult(
                 new HttpResponseMessage(HttpStatusCode.OK)

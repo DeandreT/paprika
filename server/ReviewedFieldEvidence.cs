@@ -125,29 +125,33 @@ public sealed record ReviewedFieldEvidence(
             // cannot become a target just because the later edit or omission isn't exportable.
             var latest = seen.Add((key, field.Name));
             var answer = ExtractionAi.Cached(db, tx, packetId, key);
-            if (answer == null || !answer.Fields.TryGetValue(field.Name, out var proposed))
+            if (answer?.Fields == null || !answer.Fields.TryGetValue(field.Name, out var proposed))
                 continue;
             var pages = packet.Pages.Where(p => document.PageIds.Contains(p.Id)).ToArray();
             var original = ExtractionAi.Ground(field, pages, proposed);
             var recorded = OriginalField(db, tx, prior, edit, sha, key);
             if (
-                recorded == null
+                recorded?.Evidence == null
                 || recorded.Status != original.Status
                 || recorded.Value != original.Value
                 || !recorded.Evidence.SequenceEqual(original.Evidence)
+                || before.Evidence == null
+                || after.Evidence == null
             )
                 continue;
             var spans = original.Evidence.Concat(before.Evidence).Concat(after.Evidence).Distinct();
             if (
                 !spans.Any()
                 || spans.Any(e =>
-                    !reviewedPageTextHashes.TryGetValue(e.PageId, out var hash)
+                    e?.PageId == null
+                    || !reviewedPageTextHashes.TryGetValue(e.PageId, out var hash)
                     || e.TextSha256 != hash
                     || !document.PageIds.Contains(e.PageId)
                     || !ExtractionPlatform.ValidEvidence(packet, e)
                 )
             )
                 continue;
+            // A reviewer-selected span verifies the edit, but cannot ground the provider's answer.
             bool grounded = original.Evidence.Length > 0;
             feedback.Add(
                 new(
@@ -181,7 +185,7 @@ public sealed record ReviewedFieldEvidence(
                         before,
                         after
                     ),
-                    latest && edit.Category is ("wrong-selection" or "transcription")
+                    latest && grounded && edit.Category is ("wrong-selection" or "transcription")
                         ? after.Value
                         : null
                 )

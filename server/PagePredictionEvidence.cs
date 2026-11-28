@@ -55,27 +55,36 @@ public static class PagePredictionEvidence
 
     // Reprocessing copies the original sources and may change the mode/test flag.
     // Parent packets are retained while a child exists, including on older installations.
-    internal static bool? Synthetic(SqliteConnection c, SqliteTransaction tx, Packet packet)
+    internal static bool? Synthetic(SqliteConnection c, SqliteTransaction tx, Packet packet) =>
+        packet.TestRun || packet.Mode == "demo"
+            ? true
+            : Synthetic(c, tx, packet.ParentPacketId, packet.Id);
+
+    internal static bool? Synthetic(
+        SqliteConnection c,
+        SqliteTransaction tx,
+        string? packetId,
+        string? childId = null
+    )
     {
-        if (packet.TestRun || packet.Mode == "demo")
-            return true;
-        var visited = new HashSet<string> { packet.Id };
-        var parent = packet.ParentPacketId;
-        while (parent is not null)
+        var visited = new HashSet<string>();
+        while (packetId is not null)
         {
+            if (packetId == childId || !visited.Add(packetId))
+                return null;
             using var q = c.CreateCommand();
             q.Transaction = tx;
             q.CommandText = """
                 SELECT json_extract(json,'$.mode'), json_extract(json,'$.testRun'),
                        json_extract(json,'$.parentPacketId') FROM packets WHERE id=$id
                 """;
-            q.Parameters.AddWithValue("$id", parent);
+            q.Parameters.AddWithValue("$id", packetId);
             using var row = q.ExecuteReader();
-            if (!visited.Add(parent) || !row.Read() || row.IsDBNull(0))
+            if (!row.Read() || row.IsDBNull(0))
                 return null;
             if (row.GetString(0) == "demo" || !row.IsDBNull(1) && row.GetBoolean(1))
                 return true;
-            parent = row.IsDBNull(2) ? null : row.GetString(2);
+            packetId = row.IsDBNull(2) ? null : row.GetString(2);
         }
         return false;
     }

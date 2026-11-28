@@ -14,6 +14,8 @@ public sealed class PagePredictionEvidenceTests : IDisposable
     );
     private readonly Store store;
     private readonly Settings settings;
+    private readonly TrainingStore training;
+    private readonly QualityStore quality;
     private readonly MockClassifiers network = new();
     private readonly PacketProcessor processor;
     private readonly byte[] bytes;
@@ -39,8 +41,8 @@ public sealed class PagePredictionEvidenceTests : IDisposable
             .Build();
         store = new(config);
         settings = new(config);
-        var training = new TrainingStore(store);
-        var quality = new QualityStore(store, training);
+        training = new TrainingStore(store);
+        quality = new QualityStore(store, training);
         var platform = new PlatformPipeline(
             store,
             training,
@@ -263,14 +265,34 @@ public sealed class PagePredictionEvidenceTests : IDisposable
     {
         var demo = Worker.Demo(store);
         await processor.Process(demo.Id, default);
-        var workflow = store.Workflows.Catalog().DefaultWorkflow;
+        var dataset = training.CreateDataset(new("Approved reviews"));
+        var catalog = store.Workflows.Catalog();
+        var original = catalog.Entries.Single(e =>
+            e.Kind == "workflow"
+            && e.Id == catalog.DefaultWorkflow.Id
+            && e.Version == catalog.DefaultWorkflow.Version
+        );
+        var draft = store.Workflows.Create(
+            new(
+                "workflow",
+                null,
+                "Live review",
+                "Demo lineage fixture",
+                Workflow: original.Workflow! with
+                {
+                    Capabilities = new(ReviewCollection: new(dataset.Id)),
+                }
+            )
+        );
+        var workflow = store.Workflows.Publish(draft.Kind, draft.Id, draft.Version, draft.Revision);
         var child = store
             .Reprocess(demo.Id, demo.Revision, settings, new(workflow.Id, workflow.Version))
             .Packet!;
         Assert.Equal("live", child.Mode);
         Assert.False(child.TestRun);
         await processor.Process(child.Id, default);
-        var predictions = Read(store.Get(child.Id)!);
+        var ready = store.Get(child.Id)!;
+        var predictions = Read(ready);
         Assert.Equal(demo.Pages.Count, predictions.Length);
         Assert.All(predictions, p =>
         {
@@ -279,6 +301,38 @@ public sealed class PagePredictionEvidenceTests : IDisposable
             Assert.Equal(demo.Sources.Single().Sha256, p.SourceGroup);
         });
         Assert.Equal(demo.Pages.Count, network.Calls);
+
+        foreach (var doc in ready.Documents)
+            doc.BusinessReference = "TEST-1";
+        var approval = store.Review(
+            ready.Id,
+            new(ready.Revision, ready.Documents, true),
+            "reviewer",
+            quality: quality
+        );
+        Assert.Equal(200, approval.Code);
+        Assert.Equal("approved", approval.Packet!.Status);
+        using var db = new SqliteConnection(store.ConnectionString);
+        db.Open();
+        using var q = db.CreateCommand();
+        q.CommandText = """
+            SELECT COUNT(*) FROM training_examples WHERE dataset_id=$dataset
+                AND json_extract(json,'$.synthetic') = 1
+            """;
+        q.Parameters.AddWithValue("$dataset", dataset.Id);
+        Assert.Equal((long)demo.Pages.Count, q.ExecuteScalar());
+        var export = new TeacherCandidates(store).Export(
+            dataset.Id,
+            new("reviewer", ["administrator"], [])
+        );
+        Assert.Equal(demo.Pages.Count, export.Examples.Length);
+        Assert.All(export.Examples, row =>
+        {
+            Assert.True(row.Example.Synthetic);
+            Assert.Equal("labeled-example", row.Origin);
+            Assert.Null(row.TeacherReview);
+        });
+        Assert.True(training.Train(new("Demo review model"), dataset.Id).Artifact.Synthetic);
     }
 
     private void RemoveReceipts(Packet packet, string pattern)

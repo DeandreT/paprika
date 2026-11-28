@@ -167,40 +167,72 @@ public sealed class TrainingStore
         using var c = store.Open();
         using var tx = c.BeginTransaction(deferred: true);
         RequireDataset(c, tx, datasetId);
-        using var q = c.CreateCommand();
-        q.Transaction = tx;
-        q.CommandText =
-            """
-                SELECT id,json_extract(json,'$.label'),coalesce(json_extract(json,'$.synthetic'),1)
-                FROM training_examples WHERE dataset_id=$dataset
-                """
-            + ActiveExampleFilter(c, tx)
-            + " ORDER BY id";
-        q.Parameters.AddWithValue("$dataset", datasetId);
-        using var r = q.ExecuteReader();
-        var rows = new List<TrainingExampleSummary>();
-        while (r.Read())
-            rows.Add(new(r.GetString(0), r.GetString(1), r.GetBoolean(2)));
-        return rows.ToArray();
+        return ReadExampleRows(
+            c,
+            tx,
+            datasetId,
+            "id,json_extract(json,'$.label'),coalesce(json_extract(json,'$.synthetic'),1)",
+            (r, inherited) =>
+                new TrainingExampleSummary(
+                    r.GetString(1),
+                    r.GetString(2),
+                    inherited || r.GetBoolean(3)
+                )
+        );
     }
 
     internal static TrainingExample[] ReadExamples(
         SqliteConnection c,
         SqliteTransaction tx,
         string datasetId
+    ) => ReadExampleRows(c, tx, datasetId, "json", (r, inherited) =>
+        {
+            var example = JsonSerializer.Deserialize<TrainingExample>(
+                r.GetString(1),
+                Contract.Json
+            )!;
+            return inherited ? example with { Synthetic = true } : example;
+        });
+
+    private static T[] ReadExampleRows<T>(
+        SqliteConnection c,
+        SqliteTransaction tx,
+        string datasetId,
+        string columns,
+        Func<SqliteDataReader, bool, T> project
     )
     {
         using var q = c.CreateCommand();
         q.Transaction = tx;
+        // Older review captures only checked the current packet. Resolve those rows at
+        // read time without rewriting immutable examples or changing unrelated manual imports.
         q.CommandText =
-            "SELECT json FROM training_examples WHERE dataset_id=$dataset"
+            $"""
+                SELECT CASE WHEN json_extract(json,'$.synthetic') = 0
+                    AND json_extract(json,'$.provenance') GLOB 'approved review by ?*'
+                    AND instr(id, 'review:' || json_extract(json,'$.packetId') || ':'
+                        || json_extract(json,'$.revision') || ':') = 1
+                    THEN json_extract(json,'$.packetId') END, {columns}
+                FROM training_examples WHERE dataset_id=$dataset
+                """
             + ActiveExampleFilter(c, tx)
             + " ORDER BY id";
         q.Parameters.AddWithValue("$dataset", datasetId);
         using var r = q.ExecuteReader();
-        var rows = new List<TrainingExample>();
+        var lineage = new Dictionary<string, bool>();
+        var rows = new List<T>();
         while (r.Read())
-            rows.Add(JsonSerializer.Deserialize<TrainingExample>(r.GetString(0), Contract.Json)!);
+        {
+            bool inherited = false;
+            if (!r.IsDBNull(0))
+            {
+                var packetId = r.GetString(0);
+                if (!lineage.TryGetValue(packetId, out inherited))
+                    lineage[packetId] = inherited =
+                        PagePredictionEvidence.Synthetic(c, tx, packetId) != false;
+            }
+            rows.Add(project(r, inherited));
+        }
         return rows.ToArray();
     }
 
@@ -519,6 +551,7 @@ public sealed class TrainingStore
             return;
         string datasetId = collection is null ? DefaultDatasetId : collection.DatasetId;
         RequireDataset(c, tx, datasetId);
+        bool synthetic = PagePredictionEvidence.Synthetic(c, tx, after) != false;
         foreach (var doc in after.Documents.Where(d => d.Type != "unknown"))
         foreach (var id in doc.PageIds)
         {
@@ -532,7 +565,7 @@ public sealed class TrainingStore
                     $"review:{after.Id}:{after.Revision}:{id}",
                     page.Text,
                     doc.Type,
-                    after.TestRun || after.Mode == "demo",
+                    synthetic,
                     $"approved review by {actor}",
                     after.Id,
                     after.Revision,

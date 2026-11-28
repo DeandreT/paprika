@@ -423,6 +423,70 @@ public sealed class TrainingDatasetTests
         };
     }
 
+    [Theory]
+    [InlineData("demo", true)]
+    [InlineData("missing", true)]
+    [InlineData("cycle", true)]
+    [InlineData("live", false)]
+    public async Task OlderReviewCapturesUseRetainedLineageDuringExportAndFit(
+        string origin,
+        bool expectedSynthetic
+    )
+    {
+        await using var app = new QualityFactory();
+        using var client = app.Client();
+        var store = app.Services.GetRequiredService<Store>();
+        var parent = new Packet { Mode = origin == "demo" ? "demo" : "live" };
+        var child = new Packet { Mode = "live", ParentPacketId = parent.Id };
+        if (origin == "cycle")
+            parent.ParentPacketId = child.Id;
+        if (origin != "missing")
+            store.Save(parent);
+        store.Save(child);
+        var dataset = await Create(client, "Retained approvals");
+        var path = PathFor(dataset);
+        var capture = new TrainingExample(
+            $"review:{child.Id}:2:page",
+            "invoice total due",
+            "invoice",
+            Synthetic: false,
+            Provenance: "approved review by reviewer",
+            PacketId: child.Id,
+            Revision: 2
+        );
+        // An independently supplied label can also have a packet ID.
+        var manual = new TrainingExample(
+            "manual",
+            "signed delivery",
+            "pod",
+            Synthetic: false,
+            PacketId: child.Id
+        );
+        await Import(client, path, capture, manual);
+        var expected = capture with { Synthetic = expectedSynthetic };
+        Assert.Equal(
+            new[] { manual, expected },
+            await Get<TrainingExample[]>(client, path + "/examples")
+        );
+        var summaries = await Get<TrainingExampleSummary[]>(client, path + "/examples/summary");
+        Assert.Equal(
+            expectedSynthetic,
+            Assert.Single(summaries, r => r.Id == capture.Id).Synthetic
+        );
+        Assert.False(Assert.Single(summaries, r => r.Id == manual.Id).Synthetic);
+        var export = await Get<ReviewedDatasetExport>(client, path + "/export");
+        Assert.Equal(
+            expected,
+            Assert.Single(export.Examples, r => r.Example.Id == capture.Id).Example
+        );
+        Assert.Equal(
+            manual,
+            Assert.Single(export.Examples, r => r.Example.Id == manual.Id).Example
+        );
+        Assert.Equal(expectedSynthetic, (await Train(client, path)).Artifact.Synthetic);
+        await Import(client, path, capture, manual); // Original immutable bytes can still be replayed.
+    }
+
     private static async Task<CreateCatalogRequest> WorkflowRequest(
         HttpClient client,
         WorkflowCapabilities capabilities
