@@ -9,7 +9,7 @@ These additive modules retain manual approval unless an explicitly configured wo
 - Frozen `TrainingModelRef` includes ID, artifact hash, complete serialized parameters/evaluation and approval state. Catalog freeze ignores caller approval and reads server-retained approval. Runtime resolves the embedded checksum-verified artifact, not the current training catalog. Old snapshots therefore survive model-table changes. Do not permit arbitrary client-supplied frozen artifacts to bypass freeze.
 - Call `TrainingStore.Apply(packet)` after text acquisition/classification but before `WorkflowAssembly.Assemble`. This replaces page type/scores with the frozen trained classifier and records per-page model checkpoints. Existing OCR/scanned-text limitations remain. Obsolete heuristic type/boundary notices are removed; unresolved missing-text warnings remain.
 - Call `QualityStore.Route(packet, blockers)` after extraction/reference/flow validation. It computes a decision without persisting approval or QA. Main supplies unresolved external validation blockers; missing required field/reference acceptance must not be inferred solely from a classifier score. Use the returned `AutoApprove` to choose approved versus review. Inside the final packet/artifact transaction call `QualityStore.OnProcessed(c,tx,packet,decision)` to save the routing result and create QA only for the finalized approved snapshot. Preserve normal cancellation/concurrency protection. This hook never captures machine predictions as reviewer training labels.
-- Inside the review transaction call `QualityStore.OnReview(c,tx,before,after,serverActor)`. It captures approved page labels/text as immutable examples and independently samples the approved revision for QA. Test/demo samples carry synthetic provenance. Simulation mode alone does not imply synthetic source data.
+- Inside the review transaction call `QualityStore.OnReview(c,tx,before,after,serverActor)`. It captures approved page labels/text into the workflow's review collection when applicable and independently samples the approved revision for QA. Test/demo samples carry synthetic provenance. Simulation mode alone does not imply synthetic source data.
 - `QualityPanelComponent` (`app-quality-panel`) accepts `packetId`, `revision`; emits `refreshed`. With empty packet ID it exposes global dataset/model/draft-policy actions.
 
 ## Policy
@@ -31,11 +31,60 @@ Example conservative draft settings:
 
 Real authorized paperwork may be processed offline in simulation mode and then classified by the trained model. This can pass the gates; raw simulation rules cannot. Synthetic evaluation policies remain manual and never authorize operational delivery. Any downstream delivery path must also enforce the shared synthetic/test provenance restrictions.
 
+## Choose a training dataset
+
+In **Platform tools → Quality and training**, open **Quality, independent QA and trained text models**. Choose an existing classifier dataset or create one. Import a JSON array of labeled examples into that selection, inspect its members, then choose **Train and evaluate**. Use at least two labels with distinct text. Workflow attachment and publication are separate actions.
+
+Each dataset has a permanent ID. Example IDs are immutable **within** a dataset. The same ID or text can occur in another dataset with a different label; only members of the selected dataset participate in deduplication, evaluation and training. Re-importing identical rows within a dataset is safe; conflicting content fails the entire batch. The Legacy dataset (ID `default`) contains pre-upgrade examples. Its name is reserved. The original import, list and train routes continue to target only Legacy.
+
+Dataset names are unique without regard to case. Creating an existing name returns `409`; refresh the dataset list to select it. Renaming checks the name the operator last saw. A stale rename returns `409`, while repeating an already-applied rename succeeds. Training runs on one consistent snapshot. Repeating it creates another model record with the same artifact hash when the dataset contents, dataset name and threshold are unchanged.
+
+New model artifacts record the dataset ID and name as they were at training time. `datasetExampleCount` and `datasetSnapshotHash` describe **all** members before deduplication, including their IDs and provenance. The existing `datasetHash` still describes the unique labeled texts used for splitting. Renaming the dataset or importing more examples cannot change the model's parameters, recorded provenance or hash. Older artifacts remain byte-compatible, with no new provenance fields inserted. See [training API routes and request bodies](api.md#local-page-type-classifier-datasets).
+
+### Collect human-approved page labels
+
+On a saved workflow draft, choose the **review collection** separately from the trained model. Set it to a dataset to send future approved examples there, even if the classifier was trained elsewhere. The workflow freezes the target ID at publication; renaming the target does not redirect any packets. An explicit empty or unknown target is rejected. Approved examples from test runs and demo packets stay synthetic when reprocessed, even in live mode. Listing, exporting and training also check the packet ancestry of older captured approvals. If that ancestry is missing or cyclic, the example is treated as synthetic. Automatic approvals never provide training labels.
+
+Without an explicit review collection, existing workflows (no model, a historical model or a Legacy-trained model) continue capturing human approvals into Legacy. A workflow using a model from a **named** dataset collects **nothing** until a target is explicitly selected. Importing examples, choosing a dataset in the panel, training a model or collecting reviews does not retrain a model, publish a draft or change a packet's frozen classifier.
+
 ## Data, evaluation and approval
 
-`POST /api/training/examples` accepts `{ examples: [{ id, text, label, synthetic, provenance, packetId?, revision? }] }`. Synthetic defaults true. IDs are immutable; importing identical IDs/content is idempotent and changed content conflicts. Only mark examples real when they are authorized independently labeled paperwork. Declared provenance is not independent proof of dataset suitability. Dataset coverage, drift and business acceptance remain responsibilities of the workflow owner.
+### Review predictions as teacher labels
 
-`POST /api/training/models` accepts `{ name, threshold }`. Each normalized identical-text group occurs on only one side of a deterministic per-label 80/20 split. Conflicting labels for identical text are rejected. Labels with fewer than five distinct texts have no test allocation. Reported accuracy/error bounds cover only held-out predictions at the routing threshold. Small/no qualifying held-out sets explicitly report `not evaluated`. The model is trained on the training split only; it is not silently refit on held-out data after evaluation. A trained model does not update accepted packets.
+Select a dataset and open **Create candidate labels from predictions**. Choose a source packet in the inbox, then import its saved predictions. Repeat for other runs you want to compare. This reads existing evidence only; opening the queue, importing, reviewing, training and downloading never dispatch another provider request. Local mode uses the local administrator; in shared mode these operations require administrator access.
+
+The review queue shows the original proposed type, source file and page, packet/revision, text, provider, requested model and reported model when recorded. New captures bind the provider response to the page **before** a trained classifier or recognition override can change the displayed type. An older completed live snapshot can supply an unattributed proposal when no overlay obscured it. If an overlay was used and its original provider prediction cannot be recovered, that page is skipped. Simulation rules, demo labels and later packet-review edits do not supply teacher predictions.
+
+Disagreements come first. Independently recorded teachers are compared only across different packet runs with matching source bytes, page number, current and previous page text, released taxonomy, instructions and test/source status. A second run of the same teacher, a matching file name or similar text is insufficient. Two different providers, or distinct **reported** models from the same provider, can support a comparison. Legacy evidence lacking the comparison key stays unpaired. Filter by comparison or review status, sample an agreement, or inspect any row's text and all proposals.
+
+Stage **Accept** with an allowed proposed type, **Correct** with another type from the original taxonomy, or **Reject** without a label. `unknown` is reviewable but cannot become the training target. Save up to 100 decisions together. The server checks the evidence membership and review version of every row in one transaction; on conflict refresh before submitting again. Adding new evidence to a reviewed group makes it pending until reviewed again. Edits replace that group's current decision; repeated import does not add votes or examples.
+
+Only accepted or corrected decisions enter the selected dataset's next fit or export. They stay separate from immutable labeled imports, including when the reviewer corrects the teacher. Saving a review does not train, approve or publish a model. Model source dependencies remain attached to all contributing packets even if the label is subsequently changed or rejected. An archived packet is excluded from future candidate reads, fits and downloads; a physical purge removes packet-bound observations and any dependent review, subject to the existing retention checks.
+
+### Portable reviewed-label export
+
+**Download JSON with training text** saves a UTF-8 `application/json` attachment locally. It contains source text and reviewer provenance. There is no external trainer URL, upload, or automatic model import. Example reader for a local trainer:
+
+```python
+import json
+from pathlib import Path
+
+data = json.loads(Path("paprika-default-reviewed.json").read_text(encoding="utf-8"))
+assert data["format"] == "paprika.reviewed-page-labels.v1"
+train = [(r["example"]["text"], r["example"]["label"])
+         for r in data["examples"] if r["split"] == "train"]
+held_out = [r for r in data["examples"] if r["split"] == "held-out"]
+```
+
+- `dataset` contains the selected ID and current name. `examples[]` contains manual labeled members and reviewed teachers. `example` has `id`, `text`, `label`, `synthetic`, `provenance` and optional source/approval fields. `origin` is `labeled-example` or `reviewed-teacher`. For a teacher, `teacherReview` preserves the original proposals (`predictions[]`), source hashes, identifiers, attribution, reviewer, reviewed label, decision, version and time. `example.label` is the reviewer's target. A missing reported `model` stays null even when `requestedModel` is known. A teacher-derived example cannot be re-imported under its `teacher:` ID as independent ground truth.
+- `groupId` and `split` are the partition the local fit uses. With teacher inputs, whole related source groups (including all contributing packets, file hashes and detected near-copies) stay together. Teacher-linked groups are never independent evaluation data, even if an independently supplied label is preferred for an overlapping page. Only `train` is fit data; only `held-out` is an independent evaluation representative. `held-out-related` is withheld, without another vote. `duplicate`, `superseded` and `conflict` rows are available for provenance, never for fitting; resolve conflicts before training. Do not pool splits across separate exports or assume differently worded sources are independent without checking their origin.
+- `fieldFeedback[]` is **separate evidence**, never a page-type target. It includes explicit field corrections tied to grounded suggestions on reviewed candidate page versions. Each record identifies the packet, document, synthetic status, extraction definition/version/hash, field and kind. `suggestion` retains provider/model attribution, answer key, original value and quote, and verbatim source evidence (page ID, UTF-16 offset and length, text and full-page text hash). `review` retains the actor, timestamp, revision, prior/result run IDs, category, submitted value and effective `before`/`after` values and spans. Only the latest explicit wrong-selection or transcription can carry a normalized `extractionTarget`. A business omission, an uncategorized edit or a superseded edit has **no target property**. Ungrounded, unreviewed or unverifiable suggestions are not extraction targets. Paprika does not fit a field-value model from this file.
+
+The format can represent an empty dataset or a dataset too small to evaluate. Exporting is not an accuracy claim.
+
+Example imports accept `{ examples: [{ id, text, label, synthetic, provenance, packetId?, revision? }] }`. Synthetic defaults true. Only mark examples real when they are authorized independently labeled paperwork. Declared provenance is not independent proof of dataset suitability. Dataset coverage, drift and business acceptance remain responsibilities of the workflow owner.
+
+Training accepts `{ name, threshold }`. Each normalized identical-text group occurs on only one side of a deterministic per-label 80/20 split. Conflicting labels for identical text in this dataset are rejected. Labels with fewer than five distinct texts have no test allocation. Reported accuracy/error bounds cover only held-out predictions at the routing threshold. Small/no qualifying held-out sets explicitly report `not evaluated`. The model is trained on the training split only; it is not silently refit on held-out data after evaluation. A trained model does not update accepted packets.
 
 `POST /api/training/models/{id}/approve` accepts `{ hash }` and records the server-resolved approver. Synthetic or unevaluated artifacts cannot be approved. Approval is separate from meeting a particular quality policy's minimum samples/error bound. `POST /api/training/freeze` embeds the exact retained artifact; `POST /api/quality/validate` validates/freeze-checks a proposed policy/model pair. GET examples/models is administrative because text and token weights can contain sensitive business information.
 
@@ -51,7 +100,7 @@ Routing results can be recomputed for the same processing revision; QA snapshots
 
 ## Storage and retention
 
-Owned tables in `jobs.sqlite`: `quality_decisions`, `quality_qa`, `training_examples`, `training_models`, `training_predictions`. `QualityRetentionParticipant` registers all five. Packet-bound routing/QA/checkpoints and untrained examples can be purged transactionally. If retained models coexist with examples linked to a packet, physical purge is conservatively blocked: trained token weights and frozen model snapshots require privacy review, not merely deleting original text. Global models/examples without packet links remain separate explicitly managed records. No background deletion is enabled.
+Owned tables in `jobs.sqlite`: `quality_decisions`, `quality_qa`, `training_datasets`, `training_examples`, `training_models`, `training_predictions`. `QualityRetentionParticipant` registers them for retention. Packet-bound routing/QA/checkpoints and untrained examples can be purged transactionally. If retained models coexist with examples linked to a packet, physical purge is conservatively blocked: trained token weights and frozen model snapshots require privacy review, not merely deleting original text. Global models/examples without packet links remain separate explicitly managed records. No background deletion is enabled.
 
 ## Validation evidence
 

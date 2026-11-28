@@ -11,6 +11,8 @@ try {
     if ($LASTEXITCODE -ne 0) { throw 'Backend tests failed.' }
     & python -m unittest discover -s tests -p 'test_*.py'
     if ($LASTEXITCODE -ne 0) { throw 'Evaluation or recovery-evidence tests failed.' }
+    & bun test tests/field-review.test.ts
+    if ($LASTEXITCODE -ne 0) { throw 'Field review tests failed.' }
     Push-Location client
     try {
         & bun --bun run build

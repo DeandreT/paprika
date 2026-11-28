@@ -15,6 +15,91 @@ public sealed class OperationsApiTests
     private const string Token = "synthetic-operations-api-token-for-tests-only-12345";
 
     [Fact]
+    public async Task FieldCorrectionRequiresWorkflowAccessAndClaimForThePacketRevision()
+    {
+        await using var factory = new OperationsFactory(enableRetention: true);
+        using var client = factory.CreateClient();
+        client.DefaultRequestHeaders.Add("X-paprika", "1");
+        var store = factory.Services.GetRequiredService<Store>();
+        var page = new Page { Text = "Invoice: lNV-001" };
+        var packet = new Packet
+        {
+            Status = "review",
+            Pages = [page],
+            Documents = [new Document { Type = "invoice", PageIds = [page.Id] }],
+        };
+        store.Save(packet);
+        var original = ExtractionPlatform.Extract(packet, ExtractionPlatformTests.Definition());
+        ExtractionStorage.Add(store, "run", original.Id, original);
+        var request = new ExtractionCorrection(
+            packet.Revision,
+            original.Id,
+            packet.Documents[0].Id,
+            "invoice",
+            "INV-001",
+            "Correct the OCR spelling.",
+            Assert.Single(original.Results).Fields.Single(f => f.Name == "invoice").Evidence,
+            Category: "transcription"
+        );
+        var url = $"/api/extraction/{packet.Id}";
+        using var anonymous = await client.PostAsJsonAsync($"{url}/corrections", request);
+        Assert.Equal(HttpStatusCode.Unauthorized, anonymous.StatusCode);
+        client.DefaultRequestHeaders.Authorization = new("Bearer", Token);
+        var foreign = new Packet
+        {
+            Status = "review",
+            Workflow = WorkflowRegistry.Legacy() with { Id = "foreign-workflow" },
+        };
+        store.Save(foreign);
+        var privateUrl = $"/api/extraction/{foreign.Id}";
+        using var hidden = await client.GetAsync(privateUrl);
+        Assert.Equal(HttpStatusCode.NotFound, hidden.StatusCode);
+        using var denied = await client.PostAsJsonAsync($"{privateUrl}/corrections", request);
+        Assert.Equal(HttpStatusCode.NotFound, denied.StatusCode);
+        var archived = new Packet
+        {
+            Status = "approved",
+            CreatedAt = DateTimeOffset.UtcNow.AddDays(-120),
+        };
+        store.Save(archived);
+        factory
+            .Services.GetRequiredService<OperationsPlatformStore>()
+            .Archive(
+                new(archived.Id, archived.Revision, true),
+                new("admin", ["administrator"], [])
+            );
+        var archivedUrl = $"/api/extraction/{archived.Id}";
+        using var archivedHistory = await client.GetAsync(archivedUrl);
+        Assert.Equal(HttpStatusCode.NotFound, archivedHistory.StatusCode);
+        using var archivedWrite = await client.PostAsJsonAsync(
+            $"{archivedUrl}/corrections",
+            request
+        );
+        Assert.Equal(HttpStatusCode.NotFound, archivedWrite.StatusCode);
+        using var unclaimed = await client.PostAsJsonAsync($"{url}/corrections", request);
+        Assert.Equal(HttpStatusCode.Conflict, unclaimed.StatusCode);
+        var before = (await client.GetFromJsonAsync<ExtractionHistoryResponse>(url))!;
+        Assert.Empty(before.Corrections);
+
+        var tasks = (
+            await client.GetFromJsonAsync<OperationsTask[]>("/api/operations-platform/tasks")
+        )!;
+        var task = Assert.Single(tasks, t =>
+            t.PacketId == packet.Id && t.PacketRevision == packet.Revision
+        );
+        using var claim = await client.PostAsJsonAsync(
+            $"/api/operations-platform/tasks/{task.Id}/claim",
+            new OperationsTaskChange(task.Revision)
+        );
+        claim.EnsureSuccessStatusCode();
+        using var success = await client.PostAsJsonAsync($"{url}/corrections", request);
+        success.EnsureSuccessStatusCode();
+        var after = (await client.GetFromJsonAsync<ExtractionHistoryResponse>(url))!;
+        Assert.Null(after.CurrentConfiguredRunId);
+        Assert.Equal("alice", Assert.Single(after.Corrections).GetProperty("actor").GetString());
+    }
+
+    [Fact]
     public async Task SharedReviewRequiresClaimAndCompletesThenReopensNextRevision()
     {
         await using var factory = new OperationsFactory();
@@ -247,7 +332,8 @@ public sealed class OperationsApiTests
         );
     }
 
-    private sealed class OperationsFactory : WebApplicationFactory<Program>
+    private sealed class OperationsFactory(bool enableRetention = false)
+        : WebApplicationFactory<Program>
     {
         private readonly string root = Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
@@ -266,6 +352,8 @@ public sealed class OperationsApiTests
                         {
                             ["paprika:DataDirectory"] = root,
                             ["paprika:Operations:Mode"] = "shared",
+                            ["paprika:Operations:Retention:ExecutionEnabled"] =
+                                enableRetention.ToString(),
                             ["paprika:Operations:Users:0:Name"] = "alice",
                             ["paprika:Operations:Users:0:Token"] = Token,
                             ["paprika:Operations:Users:0:Roles:0"] = "reviewer",

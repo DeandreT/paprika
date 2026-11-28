@@ -23,8 +23,13 @@ public sealed record WorkflowCapabilities(
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
         OutputPolicy? Output = null,
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] FlowPolicy? Flow = null,
-    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] CasePolicy? Case = null
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] CasePolicy? Case = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        ReviewExampleCollection? ReviewCollection = null
 );
+
+[JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
+public sealed record ReviewExampleCollection(string DatasetId);
 
 public static class PlatformPolicies
 {
@@ -71,6 +76,8 @@ public static class PlatformPolicies
             CaseValidator.Validate(casePolicy);
         try
         {
+            if (capabilities.ReviewCollection is { } collection)
+                TrainingStore.RequireDataset(c, tx, collection.DatasetId);
             var frozen = capabilities with
             {
                 Training = capabilities.Training is { } training

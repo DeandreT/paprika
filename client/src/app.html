@@ -31,17 +31,17 @@
 <section id="platform-tools" class="catalog-manager" aria-label="Document processing platform" data-testid="platform-tools">
   <nav class="catalog-tabs" aria-label="Platform tools">
     @for (tab of platformTabs; track tab.id) {
-      <button mat-button [attr.aria-pressed]="platformTab() === tab.id" (click)="platformTab.set(tab.id)">{{ tab.name }}</button>
+      <button mat-button [attr.aria-pressed]="platformTab() === tab.id" (click)="platformTab.set(tab.id)" [disabled]="fieldEditing()">{{ tab.name }}</button>
     }
   </nav>
-  @if (dirty() || busy()) {
+  @if (dirty() || packetBusy()) {
     <p role="status">Save your packet edits and wait for the current operation before using platform actions.</p>
   } @else {
     @switch (platformTab()) {
       @case ('team') { <app-operations-panel [packetId]="packet()?.id ?? ''" [revision]="packet()?.revision ?? 0" (refreshed)="platformRefreshed()" /> }
       @case ('quality') { <app-quality-panel [packetId]="packet()?.id ?? ''" [revision]="packet()?.revision ?? 0" (refreshed)="platformRefreshed()" /> }
       @case ('references') { <app-reference-panel [packetId]="packet()?.id ?? ''" [revision]="packet()?.revision ?? 0" (refreshed)="platformRefreshed()" /> }
-      @case ('extraction') { <app-extraction-panel [packetId]="packet()?.id ?? ''" [revision]="packet()?.revision ?? 0" (refreshed)="platformRefreshed()" /> }
+      @case ('extraction') { <app-extraction-panel [packet]="packet()" [reviewBlocked]="fieldReviewBlocked()" (fieldEditing)="fieldEditing.set($event)" (fieldSaved)="fieldSaved($event)" (reloadPacket)="open(packet()!.id)" /> }
       @case ('cases') { <app-case-panel [packetId]="packet()?.id ?? ''" [revision]="packet()?.revision ?? 0" (refreshed)="platformRefreshed()" /> }
       @case ('flows') { <app-flow-panel [packetId]="packet()?.id ?? ''" [revision]="packet()?.revision ?? 0" (refreshed)="platformRefreshed()" /> }
     }
@@ -62,7 +62,7 @@
 </div>
 } @if (notice()) {
 <div class="alert success" role="status">{{ notice() }}</div>
-} @if (loading() || busy()) {
+} @if (loading() || packetBusy()) {
 <mat-progress-bar mode="indeterminate" aria-label="Loading packet data" />
 }
 @if (!managerOpen() && !classificationAdvanced()) { <app-classification-wizard [workspace]="this" /> }
@@ -354,7 +354,7 @@
         >
       </div>
       <div class="document-download">
-        @if (p.status === 'approved' && !dirty()) {
+        @if (p.status === 'approved' && !dirty() && !fieldEditing()) {
         <a
           mat-button
           data-testid="document-download"
@@ -390,6 +390,7 @@
           [cdkDragStartDelay]="{ mouse: 0, touch: 200 }"
           [attr.data-page-id]="id" title="Drag to move page"
           [class.selected]="selectedId() === id"
+          [disabled]="fieldEditing()"
           (click)="selectedId.set(id)"
           [attr.aria-pressed]="selectedId() === id"
           [attr.aria-label]="
@@ -427,6 +428,10 @@
       Drop a page here to create a new document
     </div>
     </div>
+    @if (p.workflow?.capabilities?.extraction && !platformOpen()) {
+      @if (dirty()) { <p class="small muted">Save the document changes before editing extracted fields.</p> }
+      <app-packet-fields [packet]="p" [disabled]="fieldReviewBlocked()" (editingChanged)="fieldEditing.set($event)" (saved)="fieldSaved($event)" (reloadPacket)="open(p.id)" />
+    }
     <section class="business-groups" aria-label="Business reference groups">
       <h3>Business reference groups</h3>
       @if (dirty()) { <p class="small muted">Includes unsaved changes.</p> }
@@ -447,7 +452,7 @@
     <div class="review-footer">
       <div>
         <strong
-          >{{ dirty() ? "● Unsaved changes" : p.status === "approved" ? "✓
+           >{{ fieldEditing() ? "Editing an extracted field" : dirty() ? "● Unsaved changes" : p.status === "approved" ? "✓
           Approved packet" : "All changes saved" }}</strong
         >
       </div>
@@ -471,7 +476,7 @@
         >
           Approve packet
         </button>
-        @if (p.status === "approved" && !dirty()) {
+        @if (p.status === "approved" && !dirty() && !fieldEditing()) {
         <a mat-stroked-button [href]="exportUrl()" data-testid="export-packet"
           >↓ Export ZIP</a
         >

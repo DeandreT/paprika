@@ -4,7 +4,7 @@
 
 ## Immutable configuration
 
-`WorkflowConfig.Capabilities` and `WorkflowSnapshot.Capabilities` are optional `WorkflowCapabilities` records with null omitted during serialization. Its nullable properties are Quality, Training, Reference, Operations, Extraction, Recognition, Preprocessing, Output, Flow and Case. Policies belong to the corresponding module. Missing capabilities retain previous behavior and hash serialization.
+`WorkflowConfig.Capabilities` and `WorkflowSnapshot.Capabilities` are optional `WorkflowCapabilities` records with null omitted during serialization. Its nullable properties are Quality, Training, Reference, Operations, Extraction, Recognition, Preprocessing, Output, Flow, Case and ReviewCollection. ReviewCollection identifies the dataset for human-approved page labels, independently of the Training artifact. Policies belong to the corresponding module. Missing capabilities on existing workflows retain previous behavior and hash serialization.
 
 Validation rejects unknown/unsupported settings before catalog save/publication and intake. Exact embedded definitions, version/hash references and self-contained trained parameters are pinned before the accepted snapshot hash is calculated. Helpers called inside registry resolution must use the existing SQLite connection/transaction rather than opening another write transaction.
 
@@ -33,6 +33,6 @@ Register a singleton implementation for module-owned tables. Return blockers for
 
 ## UI and contracts
 
-Standalone panels: QualityPanelComponent, ReferencePanelComponent, OperationsPanelComponent, ExtractionPanelComponent, CasePanelComponent and FlowPanelComponent. Selectors app-quality-panel, app-reference-panel, app-operations-panel, app-extraction-panel, app-case-panel, app-flow-panel. Common inputs packetId:string and revision:number, refreshed:void output. Empty packet ID supports catalog/global actions before selection. Main embeds panels and owns shared workflow editor preservation of capabilities.
+Standalone panels: QualityPanelComponent, ReferencePanelComponent, OperationsPanelComponent, ExtractionPanelComponent, CasePanelComponent and FlowPanelComponent. Selectors app-quality-panel, app-reference-panel, app-operations-panel, app-extraction-panel, app-case-panel, app-flow-panel. Most accept `packetId` and `revision` and emit `refreshed`. The extraction panel takes the selected `packet` and returns the revision from a successful field correction. Global catalog actions can run without a selected packet. Main embeds panels and owns shared workflow editor preservation of capabilities.
 
 Every API uses typed request/response metadata and named operations. No secret values in catalog, responses, snapshots or logs. Real transport acknowledgments are distinguished from business acceptance. Synthetic reference/model measurements retain explicit provenance.

@@ -1,6 +1,6 @@
 import { test, expect, type APIRequestContext, type APIResponse } from '@playwright/test';
 import { randomUUID } from 'node:crypto';
-import { inflateRawSync } from 'node:zlib';
+import { jsonFromZip } from './export-zip';
 import { textPdf } from './fixtures';
 
 const headers = { 'X-paprika': '1' };
@@ -125,30 +125,6 @@ function assertGroups(packet: Packet, sizes: number[], typeId?: string) {
     expect(packet.pages.map(p => p.predictedType)).toEqual(packet.pages.map(() => typeId));
     expect(packet.documents.map(d => d.type)).toEqual(sizes.map(() => typeId));
   }
-}
-
-// Read the actual central directory: ZIP entries may use data descriptors, so local
-// headers alone cannot reliably locate the compressed manifest produced by .NET.
-function manifestFromZip(bytes: Buffer) {
-  let end = bytes.length - 22;
-  while (end >= Math.max(0, bytes.length - 65_557) && bytes.readUInt32LE(end) !== 0x06054b50) end--;
-  expect(end, 'ZIP end-of-central-directory').toBeGreaterThanOrEqual(0);
-  let cursor = bytes.readUInt32LE(end + 16);
-  for (let n = 0; n < bytes.readUInt16LE(end + 10); n++) {
-    expect(bytes.readUInt32LE(cursor)).toBe(0x02014b50);
-    const method = bytes.readUInt16LE(cursor + 10), size = bytes.readUInt32LE(cursor + 20);
-    const nameSize = bytes.readUInt16LE(cursor + 28), extraSize = bytes.readUInt16LE(cursor + 30), commentSize = bytes.readUInt16LE(cursor + 32);
-    const name = bytes.subarray(cursor + 46, cursor + 46 + nameSize).toString();
-    if (name === 'manifest.json') {
-      const local = bytes.readUInt32LE(cursor + 42);
-      const start = local + 30 + bytes.readUInt16LE(local + 26) + bytes.readUInt16LE(local + 28);
-      const compressed = bytes.subarray(start, start + size);
-      expect([0, 8]).toContain(method);
-      return JSON.parse((method === 8 ? inflateRawSync(compressed) : compressed).toString());
-    }
-    cursor += 46 + nameSize + extraSize + commentSize;
-  }
-  throw new Error('Export did not contain manifest.json');
 }
 
 test.describe('versioned workflow API acceptance', () => {
@@ -315,7 +291,7 @@ test.describe('versioned workflow API acceptance', () => {
     const exported = await request.get(`/api/packets/${packet.id}/export`);
     expect(exported.ok(), await exported.text()).toBeTruthy();
     expect(exported.headers()['content-type']).toContain('zip');
-    const manifest = manifestFromZip(await exported.body());
+    const manifest = jsonFromZip(await exported.body(), 'manifest.json');
     expect(manifest.testRun).toBe(true);
     expect(manifest.workflow).toEqual(snapshot);
     expect(manifest.documents[0]).toMatchObject({ type: correction.entry.id, businessReference: 'SYNTHETIC-CORRECTION-001' });

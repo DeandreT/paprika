@@ -70,8 +70,8 @@ public sealed class PacketProcessor(
                     if (page.ReviewReasons.Count == 0)
                     {
                         token.ThrowIfCancellationRequested();
-                        await providers.Classify(packet, page, previous, token);
-                        store.Save(packet);
+                        var applied = await providers.ClassifyPage(packet, page, previous, token);
+                        store.Save(packet, applied);
                     }
                     previous = page;
                 }

@@ -1,5 +1,6 @@
-<details (toggle)="toggle($event)"><summary>Extraction, visual templates, image processing and outputs</summary>
+<details (toggle)="toggle($event)"><summary (click)="editing() ? $event.preventDefault() : undefined">Extraction, visual templates, image processing and outputs</summary>
   @if (error()) { <p role="alert">{{error()}}</p> } @if (notice()) { <p role="status">{{notice()}}</p> }
+  <fieldset class="panel-controls" [disabled]="editing()">
   <button type="button" (click)="load()" [disabled]="busy()">Refresh platform data</button>
   <h4>Versioned extraction definitions</h4><p>Use one label, bounded regular expression or AI description per field. Named capture <code>value</code> selects a value. AI fields send the document's page text to OpenAI in live workflows; a value is kept only when its quoted text is found on the page. Delimited tables start after an exact header line; quoted cells are supported.</p>
   <label>Definition ID<input name="extractionDefinitionId" [(ngModel)]="definitionId" maxlength="80"></label><label>Definition version<input name="extractionDefinitionVersion" type="number" min="1" [(ngModel)]="definitionVersion"></label><label>Document type (empty applies to all)<input name="extractionDocumentType" [(ngModel)]="documentType"></label>
@@ -15,11 +16,13 @@
   @if (packetId) {
     <label>Definition<select [(ngModel)]="definitionKey"><option value="">Choose version</option>@for (d of definitions(); track d.definition.id + ':' + d.definition.version) { <option [value]="d.definition.id + ':' + d.definition.version">{{d.definition.id}} v{{d.definition.version}}</option> }</select></label>
     <button type="button" (click)="extract()" [disabled]="busy() || !definitionKey">Extract current packet</button>
-    @for (run of runs(); track run.id) { <section><h4>Run {{run.id}} — revision {{run.packetRevision}}</h4>@for (result of run.results; track result.documentId) { <strong>Document {{result.documentId}}</strong>@for (field of result.fields; track field.name) { <p>{{field.name}}: {{field.value ?? '—'}} ({{field.status}}) <button type="button" (click)="edit(run, result.documentId, field)" [disabled]="run.packetRevision !== revision">Correct</button></p><details><summary>Source evidence</summary><pre>{{field.evidence | json}}</pre></details> }<details><summary>Extracted tables</summary><pre>{{result.tables | json}}</pre></details> }</section> }
-    @if (correctionRun) { <h4>Human correction — {{correctionField}}</h4><label>Normalized value (empty means missing)<input [(ngModel)]="correctionValue"></label><label>Reason<input [(ngModel)]="correctionReason" maxlength="1000"></label><label>Evidence spans (must match current page text and hash)<textarea [(ngModel)]="correctionEvidence" rows="4"></textarea></label><button type="button" (click)="correct()" [disabled]="busy() || !correctionReason">Save revision-checked correction</button> }
-    <details><summary>Correction history</summary><pre>{{history() | json}}</pre></details>
+  }
+  </fieldset>
+  @if (packet(); as p) {
+    @if (opened()) { <app-packet-fields [packet]="p" [includeAdHoc]="true" [refreshVersion]="fieldVersion()" [disabled]="busy() || reviewBlocked()" (editingChanged)="editingChanged($event)" (saved)="fieldSaved.emit($event)" (reloadPacket)="reloadPacket.emit()" /> }
+    <fieldset class="panel-controls" [disabled]="editing()">
     <h4>Visual template training and preprocessing</h4><p>Visual features compare decoded images or PDFium-rendered PDF pages, not OCR words. PDFs render within a 1600×2200 viewport. Scores are template similarity, not measured classification accuracy. Rotation is explicitly configured; automatic orientation detection is not enabled.</p>
-    <label>Source<select [(ngModel)]="sourceId">@for (s of packet()?.sources ?? []; track s.id) { <option [value]="s.id">{{s.name}}</option> }</select></label>
+    <label>Source<select [(ngModel)]="sourceId">@for (s of sources(); track s.id) { <option [value]="s.id">{{s.name}}</option> }</select></label>
     <label>Source page number<input name="extractionSourcePage" type="number" min="1" max="250" [(ngModel)]="sourcePageNumber"></label>
     <label>Template ID<input [(ngModel)]="templateId"></label><label>Version<input type="number" min="1" [(ngModel)]="templateVersion"></label><label>Workflow label<input [(ngModel)]="templateLabel"></label><button type="button" (click)="train()" [disabled]="busy() || !sourceId">Train new immutable image template</button>
     <label>Minimum similarity<input type="number" min="0" max="1" step=".01" [(ngModel)]="minimumScore"></label><label>Minimum competing-label margin<input type="number" min="0" max="1" step=".01" [(ngModel)]="minimumMargin"></label><button type="button" (click)="recognize()" [disabled]="busy() || !templates().length">Compare all templates (read-only predictions)</button>
@@ -27,8 +30,9 @@
     <details><summary>Visual comparison provenance</summary><pre>{{recognition() | json}}</pre></details><details><summary>Derivatives and hashes</summary><pre>{{derivatives() | json}}</pre></details>
     <h4>Enhanced outputs</h4><p>Explicit approval of the current revision is required for generation and download. Searchable raster PDF requires provider line polygons. Pixel-redacted PDF replaces pixels and omits the entire text layer, safely reconstructing PDF or image sources. Redacted text PDF reconstructs only sanitized OCR text; it does not preserve original layout. For PDF region coordinates use the 1600×2200 fitted raster dimensions; create a derivative to inspect its actual dimensions first.</p>
     <label>Format<select [(ngModel)]="outputFormat"><option value="text-json">Sanitized text JSON</option><option value="redacted-text-pdf">Reconstructed sanitized text PDF</option><option value="searchable-image-pdf">Image PDF with positioned searchable OCR</option><option value="redacted-image-pdf">Pixel-redacted image PDF</option></select></label>
-    <label>Text values to remove (one per line; text outputs only)<textarea [(ngModel)]="redactValues" rows="3"></textarea></label><label>Image redaction regions JSON: pageId, x, y, width, height (original pixels)<textarea [(ngModel)]="regionsJson" rows="3"></textarea></label><details><summary>Page IDs</summary><pre>{{packet()?.pages | json}}</pre></details><button type="button" (click)="generate()" [disabled]="busy()">Generate immutable output</button>
+    <label>Text values to remove (one per line; text outputs only)<textarea [(ngModel)]="redactValues" rows="3"></textarea></label><label>Image redaction regions JSON: pageId, x, y, width, height (original pixels)<textarea [(ngModel)]="regionsJson" rows="3"></textarea></label><details><summary>Page IDs</summary><pre>{{p.pages | json}}</pre></details><button type="button" (click)="generate()" [disabled]="busy()">Generate immutable output</button>
     @for (output of outputs(); track output.id) { <p><a [href]="'/api/outputs/' + packetId + '/files/' + output.id">Download {{output.format}}</a> <code>{{output.sha256}}</code></p> }
+    </fieldset>
   }
   <details><summary>Available image template versions and hashes</summary><pre>{{templates() | json}}</pre></details>
 </details>

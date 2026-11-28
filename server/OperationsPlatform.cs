@@ -597,9 +597,14 @@ public sealed class OperationsPlatformStore
     public bool IsArchived(string packetId)
     {
         using var c = store.Open();
+        return IsArchived(c, null, packetId);
+    }
+
+    internal static bool IsArchived(SqliteConnection c, SqliteTransaction? tx, string packetId)
+    {
         using var q = Command(
             c,
-            null,
+            tx,
             "SELECT 1 FROM operations_tombstones WHERE packet_id=$id",
             ("$id", packetId)
         );
@@ -944,7 +949,7 @@ public sealed class OperationsPlatformStore
         return false;
     }
 
-    private static bool TableExists(SqliteConnection c, SqliteTransaction tx, string name)
+    internal static bool TableExists(SqliteConnection c, SqliteTransaction tx, string name)
     {
         using var q = Command(
             c,

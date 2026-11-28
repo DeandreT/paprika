@@ -4,7 +4,7 @@ All operations use local data and `jobs.sqlite`; no external service is invoked 
 
 ## Field and table extraction
 
-`ExtractionPanelComponent` (`app-extraction-panel`) supports global definition creation without a selected packet, structured field/table editors, packet extraction, evidence inspection, correction, visual-template creation/comparison, image transformation and output generation. Inputs are `packetId` and `revision`; `refreshed` is emitted after a packet-changing correction. Workflow capability attachment is handled by the shared capability editor.
+The Extraction and images panel supports definition creation without a selected packet, structured field/table editors, packet extraction, evidence inspection, visual-template creation/comparison, image transformation and output generation. It shares the field editor with Guided and Advanced packet review and can also display ad-hoc runs. The workflow capability editor attaches a definition to a workflow.
 
 Definitions have immutable `(id, version)` identities and SHA-256 content hashes. A field selects either a literal label followed by `:`/`=` or a bounded regular expression, with optional named `value` capture. Patterns are limited to 1,000 characters, run with a 100 ms timeout, and pages/candidate counts are bounded. Supported normalization: trimmed text; invariant decimal; `yyyy-MM-dd` or `MM/dd/yyyy` date; yes/no/true/false boolean. Results distinguish `extracted`, `missing`, `ambiguous`, `invalid` and `corrected`. Multiple distinct normalized values remain ambiguous; extraction never silently chooses the first candidate.
 
@@ -19,6 +19,37 @@ AI field runs require human approval. A matching quote proves where the value ca
 Delimited tables use an exact header line followed by rows with the configured number of columns. Pipe, comma, tab and semicolon delimiters are supported; quoted delimiters and doubled quotes are parsed. Blank/malformed rows terminate a table. This is real delimited-table extraction, not general visual table inference; multi-line quoted cells are not supported. Each field/cell has page ID, original text offsets/length, exact evidence text and full-page text SHA-256. Delimited-cell evidence includes original quote characters while the value is decoded.
 
 Runs bind packet revision and exact workflow hash. Corrections re-read the packet in an immediate SQLite transaction, enforce revision/claim checks, validate evidence hashes/text and document membership, normalize the replacement and append immutable correction/run history. Approval is invalidated and the packet revision advances. Original predictions and run values remain intact. Review carries corrected extraction to a later revision only when the workflow and document ID/type/ordered page IDs are unchanged; changed documents are re-extracted. Re-running configured extraction reuses the current corrected run rather than overwriting human values. `ExtractionPlatform.Current` returns an exact-current run.
+
+### Review a field
+
+Open the packet in Guided review and select a document. For each configured field, compare its delivery value with its source text. A correction needs a free-text note and one choice:
+
+| Choice | What to supply | Result |
+| --- | --- | --- |
+| **Wrong text selected** (`wrong-selection`) | Select the page and highlight the correct passage in its extracted text. | The chosen span becomes the field's evidence. The definition's field kind determines the normalized value, for example `03/14/2026` becomes `2026-03-14`. |
+| **Text read incorrectly** (`transcription`) | Enter the corrected value. | The replacement can differ from the text in the original span. Current evidence is retained, including an empty evidence list when no span was recorded. |
+| **Omit from delivery** (`omit`) | Supply a note; there is no replacement value. | The field remains `corrected` with a null value. This decision applies to this document; it does not mark the text absent, redact the PDF, or change the workflow. A required field still needs a usable value before approval. |
+
+**API.** `GET /api/extraction/{packetId}` returns immutable `runs`, `corrections` and `currentConfiguredRunId` (nullable). Use the current packet revision and run ID to `POST /api/extraction/{packetId}/corrections`. For example, if OCR returned `B0L-72`:
+
+```json
+{
+  "revision": 3,
+  "runId": "<current run ID>",
+  "documentId": "<document ID>",
+  "field": "bol",
+  "category": "transcription",
+  "value": "BOL-72",
+  "reason": "The printed character after B is the letter O.",
+  "evidence": []
+}
+```
+
+`value` is a string interpreted as the configured kind (`text`, `number`, `date` or `boolean`), or JSON `null` for omission. For `wrong-selection`, send exactly one nonempty `evidence` span: `{pageId, offset, length, text, textSha256}`. The offset and length count UTF-16 code units in the original page text; the hash is lowercase SHA-256 of the complete page text encoded as UTF-8. The page must belong to the document. The selection must change the previous evidence, and `value` and `text` must normalize to the same field value. For `transcription` or `omit`, send `[]` to retain the effective evidence; an exact copy of that evidence is also accepted. A `409` requires reloading the current revision and run before submitting another change.
+
+**Reading feedback.** A field correction row links `previousRunId` and `resultId` to immutable runs. New rows retain the raw `correction` (including the note), effective `before` and `after` field snapshots, `fieldKind`, `normalizedValue`, actor and time. For effective evidence, read `after.evidence`, not the possibly empty request array. Older rows can be read through the run links. Requests without a category keep the legacy correction semantics; a missing or null category means *uncategorized*, even if the note or value resembles one of the three choices. Rows recording carry-forward have an `action` instead of a `correction`; new carry rows list the unchanged `documentIds`. Follow those links to distinguish a carried correction from a fresh prediction after regrouping.
+
+These records are review feedback, not approved labels for an extractor. They stay with the packet under its workflow permissions and retention policy. Reprocessing creates a new packet; omission is not a suppression rule for subsequent runs. Consumers should read approved values from [`fields.json`](approved-fields.md), not replay history.
 
 ## Visual templates and preprocessing
 
@@ -66,4 +97,8 @@ Host mapping: `MapExtractionEndpoints`, `MapRecognitionEndpoints`, `MapPreproces
 
 ## Offline regression coverage
 
-Owned tests cover synthetic labeled forms; normalized/missing/ambiguous fields; genuinely parsed quoted table cells and evidence spans; stale correction revisions/evidence; immutable human corrections and review carry/invalidation; exact definition freeze; visual differentiation/ties/blanks using real synthetic images; real rotation/grayscale/contrast; automatic configured PDF preprocessing without a recognition policy; native PDF rendering; PdfPig-extracted sanitized PDF text; raster-redacted PDF absence of source text and black rendered pixels; positioned invisible OCR text; and output idempotency conflicts. No production calls are used.
+`FieldCorrectionApiTests` exercises packet-scoped history and correction writes, including rejected evidence and stale revisions. Run `bun test tests/field-review.test.ts` from the repository root for source coordinates and typed value handling. With a local simulation server and client running, `bun --bun run test field-correction-review.spec.ts -g "corrects fields"` from `tests/` exercises all three choices through Guided review, reopens the saved packet, approves it and reads the downloaded ZIP.
+
+For matched screenshots, set `PAPRIKA_FIELD_REVIEW_PROOF_DIR` to an output directory. Point `PAPRIKA_TEST_URL` at the previous UI with an isolated simulation database and run the same spec with `-g "baseline screenshot"`. Open the new UI on the same database, set `PAPRIKA_FIELD_REVIEW_PACKET_ID` to the ID printed by the baseline test, and run `-g "corrects fields"`. The spec captures the same packet, page, viewport and revision before it makes any corrections.
+
+Other tests cover synthetic labeled forms; normalized/missing/ambiguous fields; genuinely parsed quoted table cells and evidence spans; immutable human corrections and review carry/invalidation; exact definition freeze; visual differentiation/ties/blanks using real synthetic images; real rotation/grayscale/contrast; automatic configured PDF preprocessing without a recognition policy; native PDF rendering; PdfPig-extracted sanitized PDF text; raster-redacted PDF absence of source text and black rendered pixels; positioned invisible OCR text; and output idempotency conflicts. No production calls are used.

@@ -1,6 +1,7 @@
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using System.Text.RegularExpressions;
 
 namespace paprika;
@@ -12,6 +13,18 @@ public sealed record TrainingModelRef(
     bool Approved = false
 );
 
+public sealed record TrainingDataset(string Id, string Name);
+
+[JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
+public sealed record TrainingDatasetRequest(string Name);
+
+[JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
+public sealed record TrainingDatasetRenameRequest(string Name, string ExpectedName);
+
+public sealed record TrainingExampleSummary(string Id, string Label, bool Synthetic);
+
+public sealed record TrainingPageRef(string PacketId, string PageId);
+
 public sealed record TrainingExample(
     string Id,
     string Text,
@@ -22,7 +35,13 @@ public sealed record TrainingExample(
     int? Revision = null,
     string? SourcePage = null,
     DateTimeOffset? ApprovedAt = null
-);
+)
+{
+    // Populated from retained predictions. The portable export includes these pages and
+    // their full provenance under teacherReview.predictions.
+    [JsonIgnore]
+    public TrainingPageRef[]? ReviewedSources { get; init; }
+}
 
 public sealed record TrainingEvaluation(
     string Status,
@@ -44,12 +63,19 @@ public sealed record TrainingArtifact(
     bool Synthetic,
     int TrainingExamples,
     TrainingEvaluation Evaluation,
-    string DatasetHash
+    string DatasetHash,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        TrainingDataset? Dataset = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        string? DatasetSnapshotHash = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        int? DatasetExampleCount = null
 );
 
 public sealed record TrainingPrediction(string Label, double Score);
 
-public sealed record TrainRequest(string Name, double Threshold = .95);
+public sealed record TrainRequest(string Name, double Threshold = .95)
+    : TrainingDatasetScopedRequest;
 
 public sealed record TrainingModelResponse(
     string Id,
@@ -63,7 +89,8 @@ public sealed record TrainingModelResponse(
 
 public sealed record TrainingApprovalRequest(string Hash);
 
-public sealed record TrainingImportRequest(TrainingExample[] Examples);
+public sealed record TrainingImportRequest(TrainingExample[] Examples)
+    : TrainingDatasetScopedRequest;
 
 public static partial class TrainingClassifier
 {
@@ -85,62 +112,36 @@ public static partial class TrainingClassifier
     public static TrainingArtifact Fit(
         IReadOnlyCollection<TrainingExample> examples,
         double threshold
+    ) => Fit(examples, threshold, []);
+
+    public static TrainingArtifact Fit(
+        IReadOnlyCollection<TrainingExample> examples,
+        double threshold,
+        IReadOnlyCollection<TrainingExample> reviewedTeacherExamples
     )
     {
-        if (examples.Count < 2 || examples.Select(e => e.Label).Distinct().Count() < 2)
+        if (examples.Count + reviewedTeacherExamples.Count < 2)
             throw new WorkflowException(
                 400,
                 "Training requires at least two labels and two examples."
             );
         if (!double.IsFinite(threshold) || threshold < .5 || threshold > 1)
             throw new WorkflowException(400, "Training threshold must be between 0.5 and 1.");
-        // A correction of the same source page is not an independent new observation.
-        // Pick its latest approved label before splitting, even if OCR/text changed.
-        var sourceUnique = SourceGroups(examples)
-            .Select(group =>
-            {
-                var latestAt = group.Max(e => e.ApprovedAt ?? DateTimeOffset.MinValue);
-                var latestRows = group
-                    .Where(e => (e.ApprovedAt ?? DateTimeOffset.MinValue) == latestAt)
-                    .ToArray();
-                int latest = latestRows.Max(e => e.Revision ?? 0);
-                var current = latestRows
-                    .Where(e => (e.Revision ?? 0) == latest)
-                    .OrderBy(e => e.Id, StringComparer.Ordinal)
-                    .ToArray();
-                if (current.Select(e => e.Label).Distinct().Count() > 1)
-                    throw new WorkflowException(
-                        400,
-                        "The same source page has conflicting latest labels."
-                    );
-                return current[0];
-            })
-            .ToArray();
-        // Token normalization also collapses case, punctuation and whitespace-only variants.
-        var groups = sourceUnique
-            .GroupBy(e => Hash(string.Join(' ', Tokens(e.Text))))
-            .OrderBy(g => g.Key, StringComparer.Ordinal)
-            .ToArray();
-        if (groups.Any(g => g.Select(e => e.Label).Distinct().Count() != 1))
+        var split = SplitExamples(examples, reviewedTeacherExamples);
+        if (split.Any(row => row.Split == "conflict"))
             throw new WorkflowException(
                 400,
-                "Identical text has conflicting labels. Resolve it before training."
+                "The same source page or identical text has conflicting labels. Resolve it before training."
             );
-        var unique = groups
-            .Select(g => g.OrderBy(e => e.Id, StringComparer.Ordinal).First())
+        var train = split
+            .Where(row => row.Split == "train")
+            .Select(row => row.Example)
+            .OrderBy(e => e.Label, StringComparer.Ordinal)
             .ToArray();
-        var heldout = new List<TrainingExample>();
-        var train = new List<TrainingExample>();
-        foreach (
-            var label in unique.GroupBy(e => e.Label).OrderBy(g => g.Key, StringComparer.Ordinal)
-        )
-        {
-            var rows = label.ToArray();
-            // Small datasets train honestly, but cannot claim calibrated evaluation.
-            int testCount = rows.Length >= 5 ? rows.Length / 5 : 0;
-            heldout.AddRange(rows.Take(testCount));
-            train.AddRange(rows.Skip(testCount));
-        }
+        var heldout = split
+            .Where(row => row.Split == "held-out")
+            .Select(row => row.Example)
+            .ToArray();
         var labels = train.Select(e => e.Label).Distinct().Order(StringComparer.Ordinal).ToArray();
         if (labels.Length < 2)
             throw new WorkflowException(
@@ -161,6 +162,13 @@ public static partial class TrainingClassifier
                 vocabulary.Add(token);
             }
         }
+        var evaluation = new TrainingEvaluation("not evaluated", 0, 0, null, null, threshold);
+        if (reviewedTeacherExamples.Count > 0)
+            evaluation = evaluation with
+            {
+                Method =
+                    "independently labeled held-out groups only; teacher-linked groups train only; Wilson 95% error upper bound",
+            };
         var artifact = new TrainingArtifact(
             Algorithm,
             labels,
@@ -168,87 +176,47 @@ public static partial class TrainingClassifier
             docs,
             totals,
             Math.Max(1, vocabulary.Count),
-            examples.Any(e => e.Synthetic),
-            train.Count,
-            new("not evaluated", 0, 0, null, null, threshold),
-            Hash(
-                JsonSerializer.Serialize(
-                    unique.Select(e => new
-                    {
-                        e.Text,
-                        e.Label,
-                        e.Synthetic,
-                    }),
-                    Contract.Json
-                )
-            )
+            examples.Any(e => e.Synthetic) || reviewedTeacherExamples.Any(e => e.Synthetic),
+            train.Length,
+            evaluation,
+            DatasetHash(split)
         );
         var evaluated = heldout
             .Select(e => (Example: e, Prediction: Predict(artifact, e.Text)))
             .Where(x => x.Prediction.Score >= threshold)
             .ToArray();
-        if (heldout.Count == 0 || evaluated.Length == 0)
+        if (evaluated.Length == 0)
             return artifact;
         int correct = evaluated.Count(x => x.Example.Label == x.Prediction.Label);
         return artifact with
         {
-            Evaluation = new(
-                "held-out",
-                evaluated.Length,
-                correct,
-                (double)correct / evaluated.Length,
-                ErrorUpperBound(evaluated.Length - correct, evaluated.Length),
-                threshold
-            ),
+            Evaluation = evaluation with
+            {
+                Status = "held-out",
+                Examples = evaluated.Length,
+                Correct = correct,
+                Accuracy = (double)correct / evaluated.Length,
+                ErrorUpperBound = ErrorUpperBound(evaluated.Length - correct, evaluated.Length),
+            },
         };
     }
 
-    private static IEnumerable<TrainingExample[]> SourceGroups(
-        IReadOnlyCollection<TrainingExample> examples
-    )
+    private static string DatasetHash(TrainingSplitExample[] split)
     {
-        var rows = examples.OrderBy(e => e.Id, StringComparer.Ordinal).ToArray();
-        var parents = Enumerable.Range(0, rows.Length).ToArray();
-        var owners = new Dictionary<string, int>(StringComparer.Ordinal);
-        int Find(int index)
-        {
-            while (parents[index] != index)
+        // The dataset snapshot captures full provenance; this hash describes unique labeled text.
+        var unique = split
+            .Where(row => row.Split is "train" or "held-out" or "held-out-related")
+            .Select(row => new
             {
-                parents[index] = parents[parents[index]];
-                index = parents[index];
-            }
-            return index;
-        }
-        for (int i = 0; i < rows.Length; i++)
-        {
-            var example = rows[i];
-            var aliases = new List<string> { "example:" + example.Id };
-            if (!string.IsNullOrWhiteSpace(example.SourcePage))
-                aliases.Add("source:" + example.SourcePage);
-            // A new source-hash alias also links older captured rows with only packet/page IDs.
-            if (
-                example.PacketId is not null
-                && example.Id.StartsWith(
-                    "review:" + example.PacketId + ":",
-                    StringComparison.Ordinal
-                )
-            )
-            {
-                var parts = example.Id.Split(':');
-                if (parts.Length == 4)
-                    aliases.Add("page:" + example.PacketId + ":" + parts[3]);
-            }
-            foreach (string alias in aliases)
-            {
-                if (owners.TryGetValue(alias, out int owner))
-                    parents[Find(i)] = Find(owner);
-                else
-                    owners[alias] = i;
-            }
-        }
-        return rows.Select((row, index) => (row, root: Find(index)))
-            .GroupBy(x => x.root)
-            .Select(g => g.Select(x => x.row).ToArray());
+                row.Example.Text,
+                row.Example.Label,
+                row.Example.Synthetic,
+            });
+        using var hash = SHA256.Create();
+        using var stream = new CryptoStream(Stream.Null, hash, CryptoStreamMode.Write);
+        JsonSerializer.Serialize(stream, unique, Contract.Json);
+        stream.FlushFinalBlock();
+        return Convert.ToHexStringLower(hash.Hash!);
     }
 
     public static TrainingPrediction Predict(TrainingArtifact model, string text)

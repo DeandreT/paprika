@@ -368,7 +368,15 @@ public sealed partial class Providers(Settings settings, Store store, IHttpClien
             .ToList();
     }
 
-    public async Task Classify(Packet packet, Page page, Page? previous, CancellationToken ct)
+    public Task Classify(Packet packet, Page page, Page? previous, CancellationToken ct) =>
+        ClassifyPage(packet, page, previous, ct);
+
+    internal async Task<AppliedPagePrediction> ClassifyPage(
+        Packet packet,
+        Page page,
+        Page? previous,
+        CancellationToken ct
+    )
     {
         EnsureActive(packet, ct);
         var workflow = packet.EffectiveWorkflow;
@@ -456,7 +464,7 @@ public sealed partial class Providers(Settings settings, Store store, IHttpClien
                 )
             : await JevClassify(packet, page, payload, workflow, requestedModel, promptVersion, ct);
         page.PredictedType = choice;
-        page.Confidence = confidence;
+        page.Confidence = confidence ?? 0;
         page.StartProbability = previous is null || previous.SourceId != page.SourceId ? 1 : start;
         packet.PromptVersion = promptVersion;
         packet.TaxonomyVersion = workflow.LegacyRules
@@ -465,11 +473,12 @@ public sealed partial class Providers(Settings settings, Store store, IHttpClien
         page.ReviewReasons = ["Manual approval required; model scores are not calibrated."];
         if (choice == "unknown")
             page.ReviewReasons.Add("Uncertain document type.");
-        if (confidence < .8)
+        if (page.Confidence < .8)
             page.ReviewReasons.Add("Low classification score.");
         if (start > .25 && start < .75)
             page.ReviewReasons.Add("Ambiguous document boundary.");
-        packet.Processing = new("classifying", usedModel);
+        packet.Processing = new("classifying", usedModel ?? requestedModel);
+        return new(page, previous, provider, usedModel, requestedModel, confidence);
     }
 
     private async Task<(string Choice, double Confidence, double Start, string? Model)> JevClassify(
@@ -526,8 +535,10 @@ public sealed partial class Providers(Settings settings, Store store, IHttpClien
         using var json = JsonDocument.Parse(raw);
         var answers = json.RootElement.GetProperty("answers");
         var type = answers.GetProperty("documentType");
-        string choice = type.GetProperty("choice").GetString() ?? "unknown";
-        if (!workflow.Types.Any(t => t.Id == choice))
+        if (
+            type.GetProperty("choice").GetString() is not { } choice
+            || !workflow.Types.Any(t => t.Id == choice)
+        )
             throw new InvalidOperationException("Classifier returned an unsupported type.");
         double confidence = Probability(type.GetProperty("confidence"));
         if (type.TryGetProperty("probabilities", out var probabilities))
@@ -548,9 +559,7 @@ public sealed partial class Providers(Settings settings, Store store, IHttpClien
             choice,
             confidence,
             start,
-            json.RootElement.TryGetProperty("model", out var model)
-                ? model.GetString()
-                : requestedModel
+            json.RootElement.TryGetProperty("model", out var model) ? model.GetString() : null
         );
     }
 
@@ -656,7 +665,7 @@ public sealed partial class Providers(Settings settings, Store store, IHttpClien
     // OpenAI Decisions API: a choice for the type and a predicate for the boundary, like Jev System One.
     private async Task<(
         string Choice,
-        double Confidence,
+        double? Confidence,
         double Start,
         string? Model
     )> OpenAiClassify(
@@ -756,19 +765,19 @@ public sealed partial class Providers(Settings settings, Store store, IHttpClien
                 .Single(a => a.GetProperty("name").GetString() == name);
         var type = Answer("documentType");
         var boundary = Answer("startsDocument");
-        var choice =
-            type.GetProperty("type").GetString() == "choice"
-                ? type.GetProperty("choice").GetString() ?? "unknown"
-                : "unknown";
-        if (!workflow.Types.Any(t => t.Id == choice))
+        if (
+            type.GetProperty("type").GetString() != "choice"
+            || type.GetProperty("choice").GetString() is not { } choice
+            || !workflow.Types.Any(t => t.Id == choice)
+        )
             throw new InvalidOperationException("Classifier returned an unsupported type.");
-        var confidence = type.TryGetProperty("confidence", out var c) ? Probability(c) : 0;
+        double? confidence = type.TryGetProperty("confidence", out var c) ? Probability(c) : null;
         var start = boundary.TryGetProperty("probability", out var p) ? Probability(p) : 0.5;
         return (
             choice,
             confidence,
             start,
-            root.TryGetProperty("model", out var model) ? model.GetString() : requestedModel
+            root.TryGetProperty("model", out var model) ? model.GetString() : null
         );
     }
 

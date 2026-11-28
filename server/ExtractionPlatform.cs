@@ -86,13 +86,18 @@ public sealed record ExtractionCorrection(
     string Field,
     string? Value,
     string Reason,
-    ExtractionEvidence[] Evidence
+    ExtractionEvidence[] Evidence,
+    string? Category = null
 );
 
 // Shared platform persistence uses jobs.sqlite and never accepts paths from callers.
 public sealed record ExtractionDefinitionResponse(ExtractionDefinition Definition, string Sha256);
 
-public sealed record ExtractionHistoryResponse(ExtractionRun[] Runs, JsonElement[] Corrections);
+public sealed record ExtractionHistoryResponse(
+    ExtractionRun[] Runs,
+    JsonElement[] Corrections,
+    string? CurrentConfiguredRunId = null
+);
 
 public sealed record ExtractionCorrectionResponse(PacketResponse Packet, ExtractionRun Run);
 
@@ -173,6 +178,27 @@ public static class ExtractionStorage
         using var q = c.CreateCommand();
         q.CommandText = "SELECT json FROM extraction_objects WHERE kind=$kind ORDER BY rowid";
         q.Parameters.AddWithValue("$kind", kind);
+        return ReadList<T>(q);
+    }
+
+    internal static T[] ListForPacket<T>(
+        SqliteConnection c,
+        SqliteTransaction tx,
+        string kind,
+        string packetId
+    )
+    {
+        using var q = c.CreateCommand();
+        q.Transaction = tx;
+        q.CommandText =
+            "SELECT json FROM extraction_objects WHERE kind=$kind AND json_extract(json,'$.packetId')=$packet ORDER BY rowid";
+        q.Parameters.AddWithValue("$kind", kind);
+        q.Parameters.AddWithValue("$packet", packetId);
+        return ReadList<T>(q);
+    }
+
+    private static T[] ReadList<T>(SqliteCommand q)
+    {
         using var r = q.ExecuteReader();
         var values = new List<T>();
         while (r.Read())
@@ -612,6 +638,15 @@ public static class ExtractionPlatform
             using var q = c.CreateCommand();
             q.Transaction = tx;
             ExtractionStorage.Insert(q, "run", run.Id, run);
+            if (current != null && reusable.Count > 0)
+                RecordCarry(
+                    q,
+                    current,
+                    run,
+                    reusable.Keys.ToArray(),
+                    "system",
+                    "unchanged document extraction reused in configured run"
+                );
         }
         foreach (var reason in Blockers(packet, run))
         foreach (var document in documents)
@@ -786,12 +821,25 @@ public static class ExtractionPlatform
         string actor
     )
     {
-        if (!ExtractionStorage.Exists(c, tx))
-            return;
         if (
             ExtractionStorage.Hash(before.EffectiveWorkflow)
             != ExtractionStorage.Hash(after.EffectiveWorkflow)
         )
+            return;
+        CarryUnchangedRuns(c, tx, before, after.Documents, after.Revision, actor);
+    }
+
+    private static void CarryUnchangedRuns(
+        SqliteConnection c,
+        SqliteTransaction tx,
+        Packet before,
+        List<Document> nextDocuments,
+        int nextRevision,
+        string actor,
+        string? excludedDefinition = null
+    )
+    {
+        if (!ExtractionStorage.Exists(c, tx))
             return;
         using var q = c.CreateCommand();
         q.Transaction = tx;
@@ -805,17 +853,19 @@ public static class ExtractionPlatform
                 runs.Add(
                     JsonSerializer.Deserialize<ExtractionRun>(reader.GetString(0), Contract.Json)!
                 );
+        var workflow = ExtractionStorage.Hash(before.EffectiveWorkflow);
         foreach (
-            var run in runs.GroupBy(r => ExtractionStorage.Hash(r.Definition))
-                .Select(g => g.First())
+            var group in runs.Where(r => r.WorkflowSha256 == workflow)
+                .GroupBy(r => ExtractionStorage.Hash(r.Definition))
         )
         {
-            if (run.WorkflowSha256 != ExtractionStorage.Hash(before.EffectiveWorkflow))
+            if (group.Key == excludedDefinition)
                 continue;
+            var run = group.First();
             var unchanged = run
                 .Results.Where(r =>
                     before.Documents.FirstOrDefault(d => d.Id == r.DocumentId) is Document old
-                    && after.Documents.FirstOrDefault(d => d.Id == r.DocumentId) is Document next
+                    && nextDocuments.FirstOrDefault(d => d.Id == r.DocumentId) is Document next
                     && old.Type == next.Type
                     && old.PageIds.SequenceEqual(next.PageIds)
                 )
@@ -825,25 +875,92 @@ public static class ExtractionPlatform
             var carried = run with
             {
                 Id = Guid.NewGuid().ToString("N"),
-                PacketRevision = after.Revision,
+                PacketRevision = nextRevision,
                 CreatedAt = DateTimeOffset.UtcNow,
                 Results = unchanged,
             };
             ExtractionStorage.Insert(q, "run", carried.Id, carried);
-            ExtractionStorage.Insert(
+            RecordCarry(
                 q,
-                "correction",
-                carried.Id,
-                new
-                {
-                    packetId = after.Id,
-                    previousRunId = run.Id,
-                    resultId = carried.Id,
-                    actor,
-                    at = carried.CreatedAt,
-                    action = "unchanged document extraction carried to reviewed revision",
-                }
+                run,
+                carried,
+                unchanged.Select(r => r.DocumentId).ToArray(),
+                actor,
+                "unchanged document extraction carried to reviewed revision"
             );
+        }
+    }
+
+    private static void RecordCarry(
+        SqliteCommand q,
+        ExtractionRun previous,
+        ExtractionRun result,
+        string[] documentIds,
+        string actor,
+        string action
+    ) =>
+        ExtractionStorage.Insert(
+            q,
+            "correction",
+            result.Id,
+            new
+            {
+                packetId = result.PacketId,
+                previousRunId = previous.Id,
+                resultId = result.Id,
+                documentIds,
+                actor,
+                at = result.CreatedAt,
+                action,
+            }
+        );
+
+    private static string? ValidateFeedback(
+        ExtractionCorrection correction,
+        ExtractionValue before,
+        string kind,
+        string? normalized
+    )
+    {
+        switch (correction.Category)
+        {
+            case null:
+                return null;
+            case "wrong-selection":
+                if (string.IsNullOrWhiteSpace(normalized))
+                    return "Selecting a different source requires a replacement value.";
+                if (
+                    correction.Evidence is not [{ Length: > 0 } selected]
+                    || correction.Evidence.SequenceEqual(before.Evidence)
+                )
+                    return "Select one changed, nonempty source span for this field.";
+                var selectedValue = Normalize(selected.Text, kind);
+                // Number normalization retains printed decimal scale; 1.50 and 1.5 are equal.
+                if (
+                    selectedValue == normalized
+                    || (
+                        kind == "number"
+                        && selectedValue != null
+                        && decimal.Parse(selectedValue, CultureInfo.InvariantCulture)
+                            == decimal.Parse(normalized, CultureInfo.InvariantCulture)
+                    )
+                )
+                    return null;
+                return "The replacement value must match the selected source span.";
+            case "transcription":
+            case "omit":
+                if (correction.Category == "transcription" && string.IsNullOrWhiteSpace(normalized))
+                    return "A transcription correction requires a replacement value.";
+                if (correction.Category == "omit" && correction.Value != null)
+                    return "Omitting a field requires a null value.";
+                if (
+                    correction.Evidence.Length != 0
+                    && !correction.Evidence.SequenceEqual(before.Evidence)
+                )
+                    return "This correction keeps the field's current source evidence.";
+                return null;
+            default:
+                return "Unknown field correction category.";
         }
     }
 
@@ -859,7 +976,10 @@ public static class ExtractionPlatform
         using var c = store.Open();
         using var tx = c.BeginTransaction();
         var packet = Store.Read(c, tx, packetId);
-        if (packet is null)
+        if (
+            packet is null
+            || (operations != null && OperationsPlatformStore.IsArchived(c, tx, packetId))
+        )
             return Results.NotFound();
         if (packet.Revision != correction.Revision)
             return Results.Conflict(new { error = "Revision changed. Reload the packet." });
@@ -867,14 +987,23 @@ public static class ExtractionPlatform
             return Results.Conflict(new { error = claimError });
         if (packet.Status is not ("review" or "approved"))
             return Results.Conflict(new { error = "Packet is not ready for correction." });
-        var run = ExtractionStorage.Get<ExtractionRun>(c, tx, "run", correction.RunId);
+        var run = string.IsNullOrEmpty(correction.RunId)
+            ? null
+            : ExtractionStorage.Get<ExtractionRun>(c, tx, "run", correction.RunId);
+        var definitionHash = run == null ? null : ExtractionStorage.Hash(run.Definition);
+        var document = packet.Documents.FirstOrDefault(d => d.Id == correction.DocumentId);
+        var target = run?.Results.FirstOrDefault(r => r.DocumentId == correction.DocumentId);
+        var before = target?.Fields.FirstOrDefault(f => f.Name == correction.Field);
+        var field = run?.Definition.Fields.FirstOrDefault(f => f.Name == correction.Field);
         if (
-            run?.PacketId != packetId
+            run is null
+            || run.PacketId != packetId
             || run.PacketRevision != packet.Revision
-            || !run.Results.Any(r =>
-                r.DocumentId == correction.DocumentId
-                && r.Fields.Any(f => f.Name == correction.Field)
-            )
+            || document is null
+            || target?.DefinitionSha256 != definitionHash
+            || before is null
+            || field is null
+            || Current(c, tx, packet, definitionHash)?.Id != run.Id
         )
             return Results.Conflict(
                 new { error = "Extraction result is stale or field is unknown." }
@@ -884,20 +1013,25 @@ public static class ExtractionPlatform
             || correction.Reason.Length > 1000
             || correction.Value?.Length > 10000
             || correction.Evidence is null
-            || correction.Evidence.Any(e => !ValidEvidence(packet, e))
-            || correction.Evidence.Any(e =>
-                !packet
-                    .Documents.Single(d => d.Id == correction.DocumentId)
-                    .PageIds.Contains(e.PageId)
-            )
         )
             return Results.BadRequest(
                 new { error = "Correction needs a reason and current evidence spans." }
             );
-        var field = run.Definition.Fields.Single(f => f.Name == correction.Field);
+        var evidence = correction.Category is "transcription" or "omit"
+            ? before.Evidence
+            : correction.Evidence;
+        if (
+            evidence.Any(e =>
+                e is null || !document.PageIds.Contains(e.PageId) || !ValidEvidence(packet, e)
+            )
+        )
+            return Results.BadRequest(new { error = "Evidence must match the current document." });
         var normalized = correction.Value == null ? null : Normalize(correction.Value, field.Kind);
         if (correction.Value != null && normalized == null)
             return Results.BadRequest(new { error = "Value does not match field kind." });
+        if (ValidateFeedback(correction, before, field.Kind, normalized) is string error)
+            return Results.BadRequest(new { error });
+        var after = new ExtractionValue(field.Name, normalized, "corrected", evidence);
         var result = run with
         {
             Id = Guid.NewGuid().ToString("N"),
@@ -910,16 +1044,7 @@ public static class ExtractionPlatform
                         : r with
                         {
                             Fields = r
-                                .Fields.Select(f =>
-                                    f.Name != correction.Field
-                                        ? f
-                                        : new ExtractionValue(
-                                            f.Name,
-                                            normalized,
-                                            "corrected",
-                                            correction.Evidence
-                                        )
-                                )
+                                .Fields.Select(f => f.Name == correction.Field ? after : f)
                                 .ToArray(),
                         }
                 )
@@ -933,6 +1058,17 @@ public static class ExtractionPlatform
         q.Parameters.AddWithValue("$revision", packet.Revision);
         q.Parameters.AddWithValue("$json", JsonSerializer.Serialize(packet, Contract.Json));
         q.ExecuteNonQuery();
+        // A correction advances the whole packet. Keep the effective results of other
+        // definitions, including any configured human corrections on an ad-hoc run.
+        CarryUnchangedRuns(
+            c,
+            tx,
+            packet,
+            packet.Documents,
+            result.PacketRevision,
+            actor,
+            definitionHash
+        );
         ExtractionStorage.Insert(
             q,
             "correction",
@@ -942,6 +1078,10 @@ public static class ExtractionPlatform
                 packetId,
                 previousRunId = run.Id,
                 correction,
+                fieldKind = field.Kind,
+                normalizedValue = normalized,
+                before,
+                after,
                 resultId = result.Id,
                 at = result.CreatedAt,
                 actor,
@@ -954,7 +1094,8 @@ public static class ExtractionPlatform
             new(
                 DateTimeOffset.UtcNow,
                 "extracted field corrected; review required",
-                packet.Revision
+                packet.Revision,
+                actor
             )
         );
         Store.Write(c, tx, packet);
@@ -994,21 +1135,47 @@ public static class ExtractionEndpoints
             .Produces<ApiError>(400)
             .Produces<ApiError>(409);
         app.MapGet("/api/extraction/{packetId}", (string packetId, Store s) =>
-                Results.Ok(
-                    new
-                    {
-                        runs = ExtractionStorage
-                            .List<ExtractionRun>(s, "run")
-                            .Where(r => r.PacketId == packetId),
-                        corrections = ExtractionStorage
-                            .List<JsonElement>(s, "correction")
-                            .Where(r => r.GetProperty("packetId").GetString() == packetId),
-                    }
+            {
+                using var connection = s.Open();
+                using var transaction = connection.BeginTransaction(deferred: true);
+                var packet = Store.Read(connection, transaction, packetId);
+                if (
+                    packet == null
+                    || OperationsPlatformStore.IsArchived(connection, transaction, packetId)
                 )
-            )
+                    return Results.NotFound();
+                var policy = packet.EffectiveWorkflow.Capabilities?.Extraction;
+                var current =
+                    policy == null
+                        ? null
+                        : ExtractionPlatform.Current(
+                            connection,
+                            transaction,
+                            packet,
+                            policy.Sha256
+                        );
+                return Results.Ok(
+                    new ExtractionHistoryResponse(
+                        ExtractionStorage.ListForPacket<ExtractionRun>(
+                            connection,
+                            transaction,
+                            "run",
+                            packetId
+                        ),
+                        ExtractionStorage.ListForPacket<JsonElement>(
+                            connection,
+                            transaction,
+                            "correction",
+                            packetId
+                        ),
+                        current?.Id
+                    )
+                );
+            })
             .WithOperationsPacketAccess("packetId")
             .WithName("GetPacketExtraction")
-            .Produces<ExtractionHistoryResponse>();
+            .Produces<ExtractionHistoryResponse>()
+            .Produces(404);
         app.MapPost(
                 "/api/extraction/{packetId}/run",
                 async (

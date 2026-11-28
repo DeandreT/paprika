@@ -93,7 +93,7 @@ interface FlowChoice { id: string; revision: number; definition: Record<string, 
         </div> }
       </div>
     </fieldset>
-    @if (enabled('quality') || enabled('training')) { <p class="muted">Quality/model configuration is preserved. Use Quality and training under Platform tools to change it on a saved draft.</p> }
+    @if (enabled('quality') || enabled('training') || enabled('reviewCollection')) { <p class="muted">Use Quality and training under Platform tools to change the review dataset, trained model or quality policy on a saved draft.</p> }
   </div>`,
 })
 export class CapabilityEditorComponent {

@@ -1,0 +1,117 @@
+<details class="review-panel" (toggle)="opened($event)">
+  <summary>Create candidate labels from predictions</summary>
+  <div class="intro">
+    <h4>Candidate labels · {{ dataset.name }}</h4>
+    <p>Review saved page-type predictions before using them to train a classifier. Importing uses the original predictions and makes no provider calls.</p>
+    <div class="actions">
+      <button type="button" (click)="importPacket()" [disabled]="busy() || !ready() || !packetId">Import selected packet’s predictions</button>
+      <button type="button" (click)="reload()" [disabled]="busy()">Reload candidates</button>
+    </div>
+    <p class="hint">@if (packetId) { Selected packet: <code>{{ packetId }}</code> } @else { Select a packet in the inbox to import its predictions. }</p>
+  </div>
+  @if (error()) { <p class="error" role="alert">{{ error() }}</p> }
+  @if (notice()) { <p role="status">{{ notice() }}</p> }
+  @if (busy()) { <p role="status">Working on {{ dataset.name }}…</p> }
+  @if (candidates().length) {
+    <h4>Review queue</h4>
+    <div class="filters">
+      <label>Comparison
+        <select [ngModel]="comparison()" (ngModelChange)="comparison.set($event); resetPage()">
+          <option value="all">All comparisons</option>
+          <option value="disagreement">Disagreements</option>
+          <option value="agreement">Agreements</option>
+          <option value="single">Single or unpaired predictions</option>
+        </select>
+      </label>
+      <label>Review status
+        <select [ngModel]="status()" (ngModelChange)="status.set($event); resetPage()">
+          <option value="all">All statuses</option>
+          <option value="pending">Pending</option>
+          <option value="accepted">Accepted</option>
+          <option value="corrected">Corrected</option>
+          <option value="rejected">Rejected</option>
+        </select>
+      </label>
+      <button type="button" (click)="sample()" [disabled]="!agreements().length">Sample an agreement</button>
+      @if (sampleId()) { <button type="button" (click)="resetPage()">Show all agreements</button> }
+    </div>
+    <p class="hint">{{ filtered().length }} matching · {{ candidates().length }} total. Disagreements appear first. Agreements need review too.</p>
+    @for (row of visible(); track row.id) {
+      @let source = row.predictions.at(0);
+      <article [class.staged]="staged().has(row.id)" [attr.aria-label]="(source?.sourceName || 'Source not recorded') + ', page ' + source?.pageNumber">
+        <header>
+          <strong>{{ source?.sourceName || 'Source not recorded' }} · page {{ source?.pageNumber }}</strong>
+          <span class="comparison" [class.disagreement]="row.comparison === 'disagreement'">{{ row.comparison === 'single' && row.predictions.length > 1 ? 'No independent comparison' : comparisonNames[row.comparison] }}</span>
+        </header>
+        <p>Proposed: <strong>{{ row.proposals.join(' / ') }}</strong></p>
+        @if (row.status !== 'pending') {
+          <p class="reviewed">Last review: {{ row.status }}@if (row.label) { · <strong>{{ row.label }}</strong> }
+            @if (row.reviewer) { by {{ row.reviewer }} } @if (row.reviewedAt) { on {{ row.reviewedAt | date:'medium' }} }
+          </p>
+        }
+        <details class="evidence" [open]="sampleId() === row.id">
+          <summary>Inspect predictions ({{ row.predictions.length }}) and page text</summary>
+          <ul>
+            @for (prediction of row.predictions; track $index) {
+              <li>
+                <strong>{{ prediction.proposedLabel }}</strong> · {{ prediction.provider || 'Provider not recorded' }} / {{ prediction.model || 'Model not recorded' }}
+                @if (prediction.requestedModel && prediction.requestedModel !== prediction.model) { (requested: {{ prediction.requestedModel }}) }
+                <p>{{ prediction.sourceName || 'Source not recorded' }} · page {{ prediction.pageNumber }} ·
+                  @if (prediction.revision !== null) { revision {{ prediction.revision }} } @else { revision not recorded }
+                </p>
+                 <p>Packet <code>{{ prediction.packetId }}</code> · page ID <code>{{ prediction.pageId }}</code></p>
+                 @if (prediction.sourceId) {
+                   <a [href]="sourcePage(prediction)" target="_blank" rel="noopener noreferrer">Open source at page {{ prediction.pageNumber }}</a>
+                 }
+                <p>{{ prediction.synthetic ? 'Synthetic' : 'Non-synthetic' }} · {{ prediction.provenance || 'Provenance not recorded' }}</p>
+              </li>
+            }
+          </ul>
+          <strong>Training text</strong>
+          <pre>{{ row.text || 'No training text recorded.' }}</pre>
+        </details>
+        @let draft = staged().get(row.id);
+        <div class="row-actions">
+          <label>Review decision
+            <select [ngModel]="draft?.decision ?? ''" (ngModelChange)="stage(row, $event)"
+                    [disabled]="busy() || !ready() || (!draft && staged().size >= maxBatch)">
+              <option value="">No change</option>
+              <option value="accepted" [disabled]="!row.acceptable.length">Accept proposal</option>
+              <option value="corrected" [disabled]="!row.corrections.length">Correct label</option>
+              <option value="rejected">Reject candidate</option>
+            </select>
+          </label>
+          @if (draft && draft.decision !== 'rejected') {
+            <label>{{ draft.decision === 'accepted' ? 'Accepted proposal' : 'Corrected label' }}
+              <select [ngModel]="draft.label ?? ''" (ngModelChange)="setLabel(row, $event)" [disabled]="busy() || !ready()">
+                <option value="">Choose label</option>
+                @for (label of (draft.decision === 'accepted' ? row.acceptable : row.corrections); track label) { <option [value]="label">{{ label }}</option> }
+              </select>
+            </label>
+          }
+        </div>
+      </article>
+    } @empty { <p>No candidates match these filters.</p> }
+    @if (filtered().length > pageSize) {
+      <nav class="actions" aria-label="Candidate pages">
+        <button type="button" (click)="page.set(page() - 1)" [disabled]="!page()">Previous</button>
+        <span>Page {{ page() + 1 }}</span>
+        <button type="button" (click)="page.set(page() + 1)" [disabled]="(page() + 1) * pageSize >= filtered().length">Next</button>
+      </nav>
+    }
+    <div class="batch">
+      <div><strong>{{ staged().size }} staged</strong>
+        <p class="hint">@if (needsLabel()) { Choose a label for each accepted or corrected candidate. }
+          @else { Save up to {{ maxBatch }} decisions together, across filters and pages. }</p>
+      </div>
+      <button type="button" (click)="save()" [disabled]="!ready() || busy() || !staged().size || needsLabel()">Save staged decisions</button>
+    </div>
+  } @else if (ready()) {
+    <p>No candidate labels in this dataset yet.</p>
+  }
+  <div class="export">
+    <h4>Export reviewed data</h4>
+    <p>The JSON download includes training text and labels for reviewed page examples in {{ dataset.name }}. Reviewed field feedback is listed separately.</p>
+    <button type="button" (click)="exportReviewed()" [disabled]="busy() || !ready()">Download JSON with training text</button>
+  </div>
+</details>
