@@ -1,6 +1,6 @@
 import { DatePipe } from "@angular/common";
 import { HttpClient, HttpErrorResponse } from "@angular/common/http";
-import { Component, Input, OnChanges, OnDestroy, SimpleChanges, computed, inject, output, signal } from "@angular/core";
+import { Component, Input, OnChanges, OnDestroy, SimpleChanges, computed, inject, signal } from "@angular/core";
 import { FormsModule } from "@angular/forms";
 import { firstValueFrom } from "rxjs";
 import { apiError } from "./workflow-store";
@@ -12,6 +12,7 @@ type Status = "pending" | Decision;
 interface Prediction {
   packetId: string;
   pageId: string;
+  sourceId: string;
   revision: number | null;
   sourceName: string;
   pageNumber: number;
@@ -53,7 +54,6 @@ interface CandidateRow extends Candidate {
 export class CandidateReviewComponent implements OnChanges, OnDestroy {
   @Input({ required: true }) dataset!: TrainingDataset;
   @Input() packetId = "";
-  reviewed = output<void>();
   private http = inject(HttpClient);
   private headers = { "X-paprika": "1" };
   private scope = 0;
@@ -97,6 +97,9 @@ export class CandidateReviewComponent implements OnChanges, OnDestroy {
     }
   }
   resetPage() { this.page.set(0); this.sampleId.set(""); }
+  sourcePage(prediction: Prediction) {
+    return `/api/packets/${encodeURIComponent(prediction.packetId)}/sources/${encodeURIComponent(prediction.sourceId)}#page=${prediction.pageNumber}`;
+  }
   sample() {
     const pool = this.agreements();
     if (!pool.length) return;
@@ -184,7 +187,6 @@ export class CandidateReviewComponent implements OnChanges, OnDestroy {
         `${base}/candidates/review`, { decisions }, { headers: this.headers }));
       if (scope !== this.scope) return;
       this.staged.set(new Map()); this.notice.set(`Review decisions saved: ${result.reviewed}.`);
-      this.reviewed.emit();
       await this.readCandidates(base, scope);
     }, true);
   }

@@ -20,6 +20,7 @@ public sealed record CandidateReviewResult(int Reviewed);
 public sealed record TeacherObservation(
     string PacketId,
     string PageId,
+    string SourceId,
     int? Revision,
     string SourceName,
     string SourceGroup,
@@ -230,9 +231,7 @@ public sealed class TeacherCandidates(Store store)
     }
 
     private static string Membership(TeacherObservation[] rows) =>
-        TrainingClassifier.Hash(
-            JsonSerializer.Serialize(rows.Select(p => new[] { p.PacketId, p.PageId }))
-        );
+        JsonSerializer.Serialize(rows.Select(p => new[] { p.PacketId, p.PageId }));
 
     private sealed record ObservationRow(
         string Id,
@@ -249,7 +248,8 @@ public sealed class TeacherCandidates(Store store)
         SqliteConnection db,
         SqliteTransaction tx,
         string datasetId,
-        string[]? ids = null
+        string[]? ids = null,
+        bool reviewedOnly = false
     )
     {
         using var q = db.CreateCommand();
@@ -272,6 +272,8 @@ public sealed class TeacherCandidates(Store store)
             q.CommandText += " AND o.candidate_id IN (SELECT value FROM json_each($ids))";
             q.Parameters.AddWithValue("$ids", JsonSerializer.Serialize(ids));
         }
+        if (reviewedOnly)
+            q.CommandText += " AND r.status IN ('accepted','corrected')";
         q.CommandText += " ORDER BY o.candidate_id,o.packet_id,o.page_id";
         using var reader = q.ExecuteReader();
         var observations = new List<ObservationRow>();
@@ -304,6 +306,7 @@ public sealed class TeacherCandidates(Store store)
             .Select(p => new TeacherObservation(
                 p.PacketId,
                 p.PageId,
+                p.SourceId,
                 p.PredictionRevision,
                 p.SourceName,
                 p.SourceGroup,
@@ -335,7 +338,7 @@ public sealed class TeacherCandidates(Store store)
         }
         return new(
             rows.Key,
-            $"{first.Revision}:{membership}",
+            $"{first.Revision}:{TrainingClassifier.Hash(membership)}",
             comparison,
             reviewed ? first.Status! : "pending",
             reviewed ? first.Label : null,
@@ -372,7 +375,10 @@ public sealed class TeacherCandidates(Store store)
         SqliteConnection db,
         SqliteTransaction tx,
         string datasetId
-    ) => Read(db, tx, datasetId).Where(c => c.Status is "accepted" or "corrected").ToArray();
+    ) =>
+        Read(db, tx, datasetId, reviewedOnly: true)
+            .Where(c => c.Status is "accepted" or "corrected")
+            .ToArray();
 
     internal static void RecordModelSources(
         SqliteConnection db,

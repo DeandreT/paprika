@@ -19,8 +19,8 @@ Training administration requires administrator access in shared mode. Use `GET /
 
 | Operation | Route | Request |
 | --- | --- | --- |
-| List member IDs, labels and synthetic flags only | `GET /api/training/datasets/{datasetId}/examples/summary` | |
-| List members, including labeled text | `GET /api/training/datasets/{datasetId}/examples` | |
+| List manually labeled members (IDs, labels and synthetic flags) | `GET /api/training/datasets/{datasetId}/examples/summary` | |
+| List manually labeled members, including text | `GET /api/training/datasets/{datasetId}/examples` | |
 | Import immutable members | `POST /api/training/datasets/{datasetId}/examples` | `{"examples":[{"id":"sample-1","text":"Synthetic invoice payment due","label":"invoice","synthetic":true,"provenance":"Handwritten test fixture"}]}` |
 | Train and evaluate on these members | `POST /api/training/datasets/{datasetId}/models` | `{"name":"Invoice desk model","threshold":0.95}` |
 | Rename a named dataset | `PUT /api/training/datasets/{datasetId}` | `{"expectedName":"Synthetic invoices","name":"Invoice desk examples"}` |

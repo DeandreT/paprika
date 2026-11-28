@@ -31,8 +31,8 @@ public sealed class TeacherCandidateRetention : IOperationsRetentionParticipant
         using var q = db.CreateCommand();
         q.Transaction = tx;
         q.CommandText = """
-            DELETE FROM teacher_reviews WHERE (dataset_id,candidate_id) IN
-                (SELECT dataset_id,candidate_id FROM teacher_observations WHERE packet_id=$packet);
+            DELETE FROM teacher_reviews WHERE EXISTS
+                (SELECT 1 FROM json_each(membership) member WHERE json_extract(member.value,'$[0]')=$packet);
             DELETE FROM teacher_observations WHERE packet_id=$packet;
             """;
         q.Parameters.AddWithValue("$packet", packet.Id);

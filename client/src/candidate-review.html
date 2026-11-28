@@ -59,7 +59,10 @@
                 <p>{{ prediction.sourceName || 'Source not recorded' }} · page {{ prediction.pageNumber }} ·
                   @if (prediction.revision !== null) { revision {{ prediction.revision }} } @else { revision not recorded }
                 </p>
-                <p>Packet <code>{{ prediction.packetId }}</code> · page ID <code>{{ prediction.pageId }}</code></p>
+                 <p>Packet <code>{{ prediction.packetId }}</code> · page ID <code>{{ prediction.pageId }}</code></p>
+                 @if (prediction.sourceId) {
+                   <a [href]="sourcePage(prediction)" target="_blank" rel="noopener noreferrer">Open source at page {{ prediction.pageNumber }}</a>
+                 }
                 <p>{{ prediction.synthetic ? 'Synthetic' : 'Non-synthetic' }} · {{ prediction.provenance || 'Provenance not recorded' }}</p>
               </li>
             }

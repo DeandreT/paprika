@@ -73,7 +73,7 @@ test('reviewers inspect independent comparisons, choose labels, and reconcile a 
       reviewer: null as string | null, reviewedAt: null as string | null, text: `ARTIFICIAL page ${pageNumber} training text.`,
       labels: ['invoice', 'packing_list', 'bol'],
       predictions: labels.map((label, index) => ({
-        packetId: `packet-${index + 1}`, pageId: `${id}-page-${index + 1}`, revision: comparison === 'single' ? null : 3,
+        packetId: `packet-${index + 1}`, pageId: `${id}-page-${index + 1}`, sourceId: `source-${index + 1}`, revision: comparison === 'single' ? null : 3,
         sourceName: 'Synthetic receiving packet.pdf', pageNumber, proposedLabel: label,
         provider: comparison === 'single' ? null : `mock-provider-${index + 1}`,
         model: comparison === 'single' ? null : `synthetic-v${index + 1}`, requestedModel: comparison === 'single' ? 'pinned-v2' : null,
@@ -127,6 +127,7 @@ test('reviewers inspect independent comparisons, choose labels, and reconcile a 
   await mixed.getByText('Inspect predictions (2) and page text').click();
   await expect(mixed.getByText('ARTIFICIAL page 1 training text.')).toBeVisible();
   await expect(mixed).toContainText('mock-provider-2 / synthetic-v2');
+  await expect(mixed.getByRole('link', { name: 'Open source at page 1' }).first()).toHaveAttribute('href', '/api/packets/packet-1/sources/source-1#page=1');
   await unpaired.getByText('Inspect predictions (1) and page text').click();
   await expect(unpaired).toContainText('Legacy receipt');
   await expect(unpaired).toContainText('revision not recorded');

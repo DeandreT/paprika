@@ -129,6 +129,14 @@ public sealed record ReviewedFieldEvidence(
                 continue;
             var pages = packet.Pages.Where(p => document.PageIds.Contains(p.Id)).ToArray();
             var original = ExtractionAi.Ground(field, pages, proposed);
+            var recorded = OriginalField(db, tx, prior, edit, sha, key);
+            if (
+                recorded == null
+                || recorded.Status != original.Status
+                || recorded.Value != original.Value
+                || !recorded.Evidence.SequenceEqual(original.Evidence)
+            )
+                continue;
             var spans = original.Evidence.Concat(before.Evidence).Concat(after.Evidence).Distinct();
             if (
                 !spans.Any()
@@ -180,6 +188,54 @@ public sealed record ReviewedFieldEvidence(
             );
         }
         return feedback.ToArray();
+    }
+
+    // A replacement cache entry can match the exact input (and even give the same answer).
+    // It is only evidence for this review if it already existed when the original run was
+    // written. A correction inherits every other field; a partial carry inherits only the
+    // listed documents. Older carry records applied to all documents in the carried run.
+    private static ExtractionValue? OriginalField(
+        SqliteConnection db,
+        SqliteTransaction tx,
+        ExtractionRun prior,
+        ExtractionCorrection edit,
+        string definitionSha256,
+        string answerKey
+    )
+    {
+        using var q = db.CreateCommand();
+        q.Transaction = tx;
+        q.CommandText = """
+            WITH RECURSIVE lineage(id) AS (
+                VALUES($prior)
+                UNION
+                SELECT json_extract(edge.json,'$.previousRunId')
+                FROM lineage JOIN extraction_objects edge ON edge.kind='correction' AND edge.id=lineage.id
+                WHERE json_extract(edge.json,'$.packetId')=$packet
+                  AND (json_type(edge.json,'$.documentIds') IS NULL
+                       OR $document IN (SELECT value FROM json_each(edge.json,'$.documentIds')))
+            ), origin AS (
+                SELECT min(r.rowid) AS sequence FROM lineage
+                LEFT JOIN extraction_objects r ON r.kind='run' AND r.id=lineage.id
+                  AND json_extract(r.json,'$.packetId')=$packet
+                HAVING count(*)=count(r.rowid)
+            )
+            SELECT original.json FROM origin JOIN extraction_objects original ON original.rowid=origin.sequence
+            JOIN extraction_objects a
+              ON a.kind='ai-answer' AND a.id=$answer AND a.rowid < origin.sequence
+            """;
+        q.Parameters.AddWithValue("$prior", prior.Id);
+        q.Parameters.AddWithValue("$packet", prior.PacketId);
+        q.Parameters.AddWithValue("$document", edit.DocumentId);
+        q.Parameters.AddWithValue("$answer", answerKey);
+        return q.ExecuteScalar() is string json
+            ? FieldValue(
+                JsonSerializer.Deserialize<ExtractionRun>(json, Contract.Json)!,
+                edit.DocumentId,
+                definitionSha256,
+                edit.Field
+            )
+            : null;
     }
 
     private static ExtractionValue? FieldValue(

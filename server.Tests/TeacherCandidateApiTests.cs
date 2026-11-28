@@ -179,6 +179,13 @@ public sealed class TeacherCandidateApiTests
             new(candidate.Id, candidate.Version, "accepted", "bol"),
         ]);
         await Post<CandidateReviewResult>(client, api + "/candidates/review", change);
+        await Post<TrainingImportResponse>(
+            client,
+            api + "/examples",
+            new TrainingImportRequest([
+                new("manual", "Linked manual fixture", "invoice", PacketId: packet.Id),
+            ])
+        );
         var store = host.Services.GetRequiredService<Store>();
         var old = DateTimeOffset.UtcNow.AddDays(-180);
         packet.CreatedAt = old;
@@ -189,6 +196,10 @@ public sealed class TeacherCandidateApiTests
         host.Services.GetRequiredService<OperationsPlatformStore>()
             .Archive(new(packet.Id, packet.Revision, true), admin);
         Assert.Empty((await client.GetFromJsonAsync<TeacherCandidate[]>(api + "/candidates"))!);
+        Assert.Empty((await client.GetFromJsonAsync<TrainingExample[]>(api + "/examples"))!);
+        Assert.Empty(
+            (await client.GetFromJsonAsync<TrainingExampleSummary[]>(api + "/examples/summary"))!
+        );
         Assert.Empty(
             (await client.GetFromJsonAsync<ReviewedDatasetExport>(api + "/export"))!.Examples
         );
@@ -205,6 +216,20 @@ public sealed class TeacherCandidateApiTests
                 )
             ).StatusCode
         );
+        using (var db = new SqliteConnection(store.ConnectionString))
+        {
+            db.Open();
+            using var tx = db.BeginTransaction();
+            var retention = new TeacherCandidateRetention();
+            Assert.Empty(retention.Blockers(db, tx, packet));
+            retention.Purge(db, tx, packet);
+            using var count = db.CreateCommand();
+            count.Transaction = tx;
+            count.CommandText =
+                "SELECT (SELECT count(*) FROM teacher_reviews) + (SELECT count(*) FROM teacher_observations)";
+            Assert.Equal(0L, count.ExecuteScalar());
+            tx.Commit();
+        }
         var config = host.Services.GetRequiredService<IConfiguration>();
         config["paprika:Operations:Mode"] = "shared";
         Assert.Equal(

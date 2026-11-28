@@ -69,9 +69,9 @@ function reviewDatasetFor(draft: Draft | undefined): string | null {
             <button type="button" (click)="renameDataset()" [disabled]="!renameTo.trim() || renameTo.trim() === dataset.name">Save dataset name</button>
           </details>
         }
-        <app-candidate-review [dataset]="dataset" [packetId]="packetId" (reviewed)="hideExamples()" />
-        <h5>Examples in {{dataset.name}}</h5>
-        <p>List example IDs, labels and whether each example is synthetic. Document text and provenance are kept out of this view.</p>
+        <app-candidate-review [dataset]="dataset" [packetId]="packetId" />
+        <h5>Manual examples in {{dataset.name}}</h5>
+        <p>List manually imported examples and approved packet reviews. Inspect teacher labels in the candidate panel above.</p>
         <button type="button" (click)="listExamples()" [disabled]="examplesLoading()">List examples</button>
         @if (examplesLoading()) { <span role="status">Loading examples…</span> }
         @if (examplesError()) { <p role="alert">{{examplesError()}}</p> }
@@ -79,14 +79,14 @@ function reviewDatasetFor(draft: Draft | undefined): string | null {
           <button type="button" (click)="hideExamples()">Hide examples</button>
           @if (rows.length) {
             <div class="examples-table"><table>
-              <caption>{{rows.length}} examples in {{dataset.name}}</caption>
+              <caption>{{rows.length}} manual examples in {{dataset.name}}</caption>
               <thead><tr><th scope="col">Example ID</th><th scope="col">Label</th><th scope="col">Source</th></tr></thead>
               <tbody>@for (row of rows.slice(0, visibleExamples); track row.id) {
                 <tr><td><code>{{row.id}}</code></td><td>{{row.label}}</td><td>{{row.synthetic ? 'Synthetic' : 'Real'}}</td></tr>
               }</tbody>
             </table></div>
             @if (rows.length > visibleExamples) { <button type="button" (click)="visibleExamples = visibleExamples + 50">Show more examples</button> }
-          } @else { <p>No examples in {{dataset.name}}.</p> }
+          } @else { <p>No manual examples in {{dataset.name}}.</p> }
         }
         <h5>Import labeled examples into {{dataset.name}}</h5>
         <p>Supply a JSON array with id, text, label, synthetic (defaults true), and provenance. Mark real only for authorized, independently labeled paperwork. Switching datasets clears this input.</p>
@@ -96,7 +96,7 @@ function reviewDatasetFor(draft: Draft | undefined): string | null {
         <label>Name <input [(ngModel)]="modelName" maxlength="120"></label>
         <label>Evaluation/routing score threshold <input type="number" min="0.5" max="1" step="0.01" [(ngModel)]="threshold"></label>
         <button type="button" (click)="train()" [disabled]="!modelName.trim()">Train and evaluate</button>
-        <p>Deterministic text-group held-out evaluation; small datasets explicitly remain not evaluated. Scores are Naive Bayes scores, not individual calibrated probabilities.</p>
+        <p>Training includes manual examples and accepted or corrected teacher labels. Teacher-linked source groups do not count toward held-out accuracy. Small datasets can train without an evaluation.</p>
       </fieldset>
     } @else { <p>Choose a training dataset to list or import examples and train a model.</p> }
     <h4>Trained artifacts from all datasets</h4>

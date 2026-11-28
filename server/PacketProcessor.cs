@@ -70,12 +70,7 @@ public sealed class PacketProcessor(
                     if (page.ReviewReasons.Count == 0)
                     {
                         token.ThrowIfCancellationRequested();
-                        var applied = await providers.ClassifyPage(
-                            packet,
-                            page,
-                            previous,
-                            token
-                        );
+                        var applied = await providers.ClassifyPage(packet, page, previous, token);
                         store.Save(packet, applied);
                     }
                     previous = page;

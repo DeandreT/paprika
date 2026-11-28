@@ -43,31 +43,7 @@ public sealed class ReviewedFieldEvidenceTests
         Assert.Equal(estimate, Assert.Single(run.Results.Single().Fields[0].Evidence));
         Assert.Equal(2, host.Provider.Calls);
 
-        async Task Correct(
-            string field,
-            string? value,
-            string? category,
-            ExtractionEvidence[] spans
-        )
-        {
-            using var response = await client.PostAsJsonAsync(
-                $"/api/extraction/{packet.Id}/corrections",
-                new ExtractionCorrection(
-                    run.PacketRevision,
-                    run.Id,
-                    document.Id,
-                    field,
-                    value,
-                    "Checked the synthetic invoice.",
-                    spans,
-                    category
-                )
-            );
-            response.EnsureSuccessStatusCode();
-            run = (await response.Content.ReadFromJsonAsync<ExtractionCorrectionResponse>())!.Run;
-        }
-
-        await Correct("amount", " 1300.00 ", "wrong-selection", [billed]);
+        run = await Correct(client, run, "amount", " 1300.00 ", "wrong-selection", [billed]);
         using var created = await client.PostAsJsonAsync(
             "/api/training/datasets",
             new TrainingDatasetRequest("Synthetic field review")
@@ -97,9 +73,9 @@ public sealed class ReviewedFieldEvidenceTests
 
         var first = (await client.GetFromJsonAsync<ReviewedDatasetExport>(api + "/export"))!;
         Assert.Equal("1300.00", Assert.Single(first.FieldFeedback).ExtractionTarget);
-        await Correct("amount", "1320.00", "transcription", []);
-        await Correct("reference", null, "omit", []);
-        await Correct("legacy", "CORRECTED-LEGACY", null, []);
+        run = await Correct(client, run, "amount", "1320.00", "transcription", []);
+        run = await Correct(client, run, "reference", null, "omit", []);
+        run = await Correct(client, run, "legacy", "CORRECTED-LEGACY", null, []);
         // A later packet review changes the document type. The historical AI answer is bound to
         // the original input, including the document type; export must use that input revision.
         document.Type = "receipt";
@@ -184,19 +160,96 @@ public sealed class ReviewedFieldEvidenceTests
         );
         using var remove = db.CreateCommand();
         remove.Transaction = tx;
-        remove.CommandText = "DELETE FROM extraction_objects WHERE kind='ai-answer' AND id=$key";
-        remove.Parameters.AddWithValue("$key", selection.Suggestion.AnswerKey);
+        tx.Save("missing_origin");
+        remove.CommandText = "DELETE FROM extraction_objects WHERE kind='run' AND id=$key";
+        remove.Parameters.AddWithValue("$key", selection.Review.PreviousRunId);
         Assert.Equal(1, remove.ExecuteNonQuery());
+        var reviewedPages = new Dictionary<string, string> { [page.Id] = estimate.TextSha256 };
+        Assert.Empty(ReviewedFieldEvidence.Read(db, tx, packet.Id, reviewedPages));
+        tx.Rollback("missing_origin");
+
+        remove.CommandText = "DELETE FROM extraction_objects WHERE kind='ai-answer' AND id=$key";
+        remove.Parameters["$key"].Value = selection.Suggestion.AnswerKey;
+        Assert.Equal(1, remove.ExecuteNonQuery());
+        Assert.Empty(ReviewedFieldEvidence.Read(db, tx, packet.Id, reviewedPages));
+        tx.Rollback();
+        Assert.Equal(2, host.Provider.Calls);
+    }
+
+    [Fact]
+    public async Task AReplacementTeacherAnswerCannotBeAttributedToAnEarlierReviewChain()
+    {
+        await using var host = new Host();
+        using var client = host.CreateClient();
+        client.DefaultRequestHeaders.Add("X-paprika", "1");
+        var store = host.Services.GetRequiredService<Store>();
+        var packet = await ProcessInvoice(host, store);
+        var page = Assert.Single(packet.Pages);
+        var run = ExtractionPlatform.Current(store, packet)!;
+        run = await Correct(
+            client,
+            run,
+            "amount",
+            "1300.00",
+            "wrong-selection",
+            [Span(page, "1,300.00")]
+        );
+
+        // A legacy cache eviction can leave immutable runs and review history intact. Let the
+        // real extraction client accept the identical response again for the very same key.
+        using var db = new SqliteConnection(store.ConnectionString);
+        db.Open();
+        using (var evict = db.CreateCommand())
+        {
+            evict.CommandText =
+                "DELETE FROM extraction_objects WHERE kind='ai-answer' AND json_extract(json,'$.packetId')=$id";
+            evict.Parameters.AddWithValue("$id", packet.Id);
+            Assert.Equal(1, evict.ExecuteNonQuery());
+        }
+        await host
+            .Services.GetRequiredService<ExtractionAi>()
+            .PrepareConfiguredAsync(store.Get(packet.Id)!, default);
+        Assert.Equal(3, host.Provider.Calls);
+        run = await Correct(client, run, "amount", "1320.00", "transcription", []);
+        await Correct(client, run, "amount", "1321.00", "transcription", []);
+
+        // Even the immediate input run for the final transcription now postdates the answer.
+        using var tx = db.BeginTransaction(deferred: true);
         Assert.Empty(
             ReviewedFieldEvidence.Read(
                 db,
                 tx,
                 packet.Id,
-                new Dictionary<string, string> { [page.Id] = estimate.TextSha256 }
+                new Dictionary<string, string> { [page.Id] = ExtractionStorage.TextHash(page.Text) }
             )
         );
-        tx.Rollback();
-        Assert.Equal(2, host.Provider.Calls);
+        Assert.Equal(3, host.Provider.Calls);
+    }
+
+    private static async Task<ExtractionRun> Correct(
+        HttpClient client,
+        ExtractionRun run,
+        string field,
+        string? value,
+        string? category,
+        ExtractionEvidence[] spans
+    )
+    {
+        using var response = await client.PostAsJsonAsync(
+            $"/api/extraction/{run.PacketId}/corrections",
+            new ExtractionCorrection(
+                run.PacketRevision,
+                run.Id,
+                Assert.Single(run.Results).DocumentId,
+                field,
+                value,
+                "Checked the synthetic invoice.",
+                spans,
+                category
+            )
+        );
+        response.EnsureSuccessStatusCode();
+        return (await response.Content.ReadFromJsonAsync<ExtractionCorrectionResponse>())!.Run;
     }
 
     private static ExtractionEvidence Span(Page page, string text) =>

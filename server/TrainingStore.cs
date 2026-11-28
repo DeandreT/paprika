@@ -215,11 +215,6 @@ public sealed class TrainingStore
     {
         if (examples is null || examples.Length is < 1 or > 10000)
             throw new WorkflowException(400, "Import 1–10000 labeled examples.");
-        if (examples.Any(e => e?.Id?.StartsWith("teacher:", StringComparison.Ordinal) == true))
-            throw new WorkflowException(
-                400,
-                "Teacher example IDs are reserved for reviewed predictions."
-            );
         foreach (var e in examples)
             if (
                 e is null
@@ -274,6 +269,18 @@ public sealed class TrainingStore
                 );
             return;
         }
+        // Permit replays of any pre-upgrade manual ID, including a formerly arbitrary
+        // teacher: prefix. Only the generated teacher:<SHA-256> namespace is reserved.
+        const string teacherPrefix = "teacher:";
+        if (
+            example.Id.Length == teacherPrefix.Length + 64
+            && example.Id.StartsWith(teacherPrefix, StringComparison.Ordinal)
+            && !example.Id.AsSpan(teacherPrefix.Length).ContainsAnyExcept("0123456789abcdef")
+        )
+            throw new WorkflowException(
+                400,
+                "Teacher example IDs are reserved for reviewed predictions."
+            );
         q.CommandText =
             "INSERT INTO training_examples(dataset_id,id,json) VALUES($dataset,$id,$json)";
         q.Parameters.AddWithValue("$json", json);
